@@ -401,23 +401,6 @@ const bool *Plat_Keys(void) { return dos_keys; }
 int Plat_WaitScancode(int timeout_ms)
 {
     SDL_Event e;
-    /* Debug: script a key sequence (DD2_KEYS="0x04,0x48"), so the interactive
-       screens (F3/F4, the ending) can be driven without a keyboard. */
-    {
-        static int script[64], nscript = -1, iscript;
-        if (nscript < 0) {
-            const char *env = getenv("DD2_KEYS");
-            nscript = 0;
-            if (env) {
-                const char *q = env;
-                while (*q && nscript < 64) {
-                    script[nscript++] = (int)strtol(q, (char **)&q, 0);
-                    if (*q == ',') q++;
-                }
-            }
-        }
-        if (iscript < nscript) return script[iscript++];
-    }
     SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP);
     for (;;) {
         if (!SDL_WaitEventTimeout(&e, timeout_ms)) return 0;   /* timeout */

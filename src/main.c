@@ -85,7 +85,7 @@ static void fb_to_rgba(void)
 
 static void draw_sprite(int idx, int x, int y, int flip);
 
-static int mask_invert = -1;      /* -1 = auto, 0/1 = forced (debug) */
+static int mask_invert = -1;      /* -1 = not resolved yet */
 
 /* The flash variant of the sprite draw.  0x2B0C queues the sprite; when the
    object's hit timer (+0x46, reached as the scratch object's [0x8C1A]) is
@@ -126,10 +126,7 @@ static void draw_sprite(int idx, int x, int y, int flip)
 {
     const dd2_sprite *s;
     int i, j;
-    if (mask_invert < 0) {
-        const char *e = getenv("DD2_INVERT_MASK");
-        mask_invert = e ? atoi(e) : 0;
-    }
+    if (mask_invert < 0) mask_invert = 0;
     if (idx < 0 || idx >= A.nsprites) return;
     s = &A.sprites[idx];
     if (!s->px) return;
@@ -324,9 +321,6 @@ static void Screen_KeyConfig(void)
         if (i <= 0) break;
         if (sel < 4) Input_SetActionKey(sel * 2, i);    /* 0x7110: DS:0x979C+2*si */
         else         Input_SetBtnKey(sel - 4, i);       /* 0x7120/0x712B */
-        if (getenv("DD2_TRACE_MENU"))
-            LOGF("keycfg: action %d -> %s (%#04x)", sel,
-                 Input_KeyName(i), i);
     }
     dd2_input_mode = 0;                                         /* 0x7199 */
 }
@@ -356,7 +350,6 @@ static void Screen_JoyConfig(void)
        nothing.  Without a pad the original waits forever (its only escape is
        the [0x2B83] no-intro flag); here a key dismisses the prompt instead. */
     if (!Plat_PadRaw(NULL, NULL)) {
-        if (getenv("DD2_TRACE_MENU")) LOGF("joycfg: no joystick -- prompt only");
         dd2_text_x = dd2_text_left; dd2_text_y = sy;
         Video_PrintStr("Hold the joystick in the\nUPPER LEFT corner and\npress a button:");
         present_now();
@@ -399,10 +392,6 @@ static void Screen_JoyConfig(void)
         Plat_PadSetThresholds(x0 + stepx, x1 - stepx, y0 + stepy, y1 - stepy);
     }
     dd2_input_mode = 2;                                     /* 0x6DB6 */
-    if (getenv("DD2_TRACE_MENU"))
-        LOGF("joycfg: x %d..%d y %d..%d -> thr %d/%d %d/%d mode=%d", x0, x1, y0, y1,
-             x0 + (x1 - x0) / 6, x1 - (x1 - x0) / 6,
-             y0 + (y1 - y0) / 6, y1 - (y1 - y0) / 6, dd2_input_mode);
     Video_PrintStr("\n\nShould button 1 (A)ttack,\nor (J)ump ?");   /* 0x6DC4 */
     present_now();
     k = Input_WaitKey();                                    /* 0x6DCD: 0x87B9 */
@@ -492,9 +481,6 @@ static void dave_door(void)
 /* 0x3A5B for Dave (record 0x834): the door opening animation + tile stamp. */
 static void dave_door_open(void)
 {
-    if (getenv("DD2_TRACE_DOOR"))
-        LOGF("door open: desc=%#06x col=%d row=%d tile=%#06x", dd2_door_desc,
-             dd2_scan_col, dd2_scan_row, dd2_door_tile);
     if (dd2_door_desc)
         Level_DoorOpen(A.level.tiles, A.level.w, A.level.h, dd2_door_desc,
                        dd2_scan_col, dd2_scan_row, dd2_door_tile, NULL);
@@ -614,8 +600,6 @@ static void obj_react(dd2_obj *o)
         break;
     default:
         dd2_unported_react++;
-        if (getenv("DD2_TRACE_UNPORTED"))
-            LOGF("unported react %#06x (info %#05x type %d)", o->react, o->info, o->type);
         break;
     }
 }
@@ -715,8 +699,6 @@ static void obj_perframe(dd2_obj *o)
         break;
     default:
         dd2_unported_fn++;
-        if (getenv("DD2_TRACE_UNPORTED"))
-            LOGF("unported fn %#06x (info %#05x type %d)", fn, o->info, o->type);
         break;                     /* not ported */
     }
 }
@@ -854,8 +836,6 @@ static int Screen_Continue(int n)
     present_now();
     /* 0x75D7 (key reset) then 0x87B9 (wait) */
     yes = wait_yes();
-    if (getenv("DD2_TRACE_MENU"))
-        LOGF("continue prompt (level %d): %s", n, yes ? "YES" : "no");
     return yes;
 }
 
@@ -883,7 +863,6 @@ static void sound_pump(void)
 
 static void sfx_logged(int id)
 {
-    if (getenv("DD2_TRACE_SFX")) LOGF("sfx %d", id);
     Sound_SFX(id);
 }
 
@@ -920,16 +899,6 @@ static void game_start_level(int n)
        after game_start_level main calls Video_AttractBegin(), which
        reloads STARPIC and would overwrite the map. */
     map_hold = 180;                     /* ~2.6 s: load + 0x7938 (0x64 ticks) */
-    /* Debug: place Dave at a given point (to test enemy AI,
-       which is only updated near the camera). */
-    if (getenv("DD2_DAVE_AT")) {
-        int x, y;
-        if (sscanf(getenv("DD2_DAVE_AT"), "%d,%d", &x, &y) == 2) {
-            dd2_objs[0].x = (int16_t)x; dd2_objs[0].y = (int16_t)y;
-            Obj_Box(&dd2_objs[0]);
-            dave_x = (int16_t)x;
-        }
-    }
     map_drawn = 0;
     Level_InitCamera();                /* 0x1CB0 */
     dd2_sprite_bbox = port_sprite_bbox;   /* 0x192E -> sprite table */
@@ -1207,7 +1176,6 @@ static void menu_prompt(int code, int *running)
    pushed into the planes first. */
 static void Screen_AttractInfo(void)
 {
-    if (getenv("DD2_TRACE_MENU")) LOGF("attract: 'I' panel shown");
     Video_FromIndexed(fb, DD2_W, DD2_H);
     Video_CenterPanel(&A, 0x18, 8);                 /* 0x6B44 */
     dd2_text_y += 2;                                /* 0x6B4A */
@@ -1319,10 +1287,7 @@ int main(int argc, char **argv)
     /* 0x16F4: 0x8E8D(1) -- seed the "random" walk index from the clock ONCE
        per run.  DD2_RAND_SEED forces it for reproducible comparisons. */
     dd2_clock_hundredths = clock_hundredths;      /* int 21h/AH=2Ch */
-    {
-        const char *rs = getenv("DD2_RAND_SEED");
-        if (rs && *rs) dd2_rand_set(atoi(rs)); else dd2_rand_seed(1);
-    }
+    dd2_rand_seed(1);
     LOGF("args=%d", argc);
     for (argi = 1; argi < argc; argi++) {
         if (!strcmp(argv[argi], "--level") && argi + 1 < argc) level = atoi(argv[++argi]);
@@ -1472,50 +1437,10 @@ int main(int argc, char **argv)
        removed: it competed for the device with the correct one. */
 
     while (running) {
-        if (getenv("DD2_TRACE_DAVE")) LOGF("loop: mode=%d hold=%d blank=%d tick=%d", mode, attract_hold, blank_hold, tick);
         int i;
         Plat_PumpEvents();                  /* events + fresh key state */
         if (Plat_QuitRequested()) running = 0;
         memcpy(keys, Plat_Keys(), sizeof keys);
-        /* Debug input injection, available in EVERY mode (the attract too):
-           DD2_HOLD=<scancode>[,<period>] holds (or pulses) a key. */
-        if (getenv("DD2_HOLD")) {
-            static int hsc = -1, hper;
-            if (hsc < 0) {
-                const char *e = getenv("DD2_HOLD"), *c;
-                hsc = (int)strtol(e, (char **)&c, 0);
-                hper = (*c == ',') ? (int)strtol(c + 1, NULL, 0) : 0;
-                if (hsc < 0 || hsc >= 128) hsc = -1;
-            }
-            if (hsc >= 0 && (hper <= 0 || (tick / hper) % 2 == 0)) keys[hsc] = true;
-        }
-        /* Port convenience for level testing: 1..8 select a level, N = next.
-           Gated behind DD2_LEVELKEYS: in the original these are ordinary
-           keys, and N is a valid answer in the Y/N prompts, so the ungated
-           shortcut made "N" in the Sound/Reset-Game prompt jump a level
-           (the check ran every iteration, before the menu dispatcher). */
-        if (getenv("DD2_LEVELKEYS")) {
-            if (keys[0x02]) game_start_level(1);
-            else if (keys[0x03]) game_start_level(2);
-            else if (keys[0x04]) game_start_level(3);
-            else if (keys[0x05]) game_start_level(4);
-            else if (keys[0x06]) game_start_level(5);
-            else if (keys[0x07]) game_start_level(6);
-            else if (keys[0x08]) game_start_level(7);
-            else if (keys[0x09]) game_start_level(8);
-            else if (keys[0x31]) game_start_level(level % 8 + 1);
-        }
-        /* Menu debug: press a menu key for a few frames
-           (DD2_MENU_TEST=TAB|F2|F5|F3|F4|ESC). */
-        if (getenv("DD2_MENU_TEST") && tick > 70 && tick < 76) {
-            const char *m = getenv("DD2_MENU_TEST");
-            if (!strcmp(m, "TAB")) keys[0x0F] = true;
-            else if (!strcmp(m, "F2")) keys[0x3C] = true;
-            else if (!strcmp(m, "F5")) keys[0x3F] = true;
-            else if (!strcmp(m, "F3")) keys[0x3D] = true;
-            else if (!strcmp(m, "F4")) keys[0x3E] = true;
-            else if (!strcmp(m, "ESC")) keys[0x01] = true;
-        }
 
         if (mode) {                            /* splash */
             /* 0x6B2B: 'I' (scan code 0x17, stored as 0x97 by the ISR) opens the
@@ -1704,7 +1629,6 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (getenv("DD2_TRACE_DAVE")) LOGF("A: after attract, mode=%d", mode);
         /* --- update ------------------------------------------------- */
         if (walk > 0) { keys[0x4D] = true; walk--; }
         if (dd2_input_mode < 2) Input_Frame(keys);   /* 0x71A5: keyboard */
@@ -1717,7 +1641,6 @@ int main(int argc, char **argv)
            F2 0x3C, F3 0x3D, F4 0x3E, F5 0x3F, F12 0x58. */
         {
             int mk = Input_MenuKey(keys);
-            if (getenv("DD2_TRACE_MENU")) LOGF("menu: tick=%d mk=%#x arm=%d", tick, mk, menu_arm);
             if (mk && menu_arm) {
                 menu_arm = 0;
                 menu_dispatch(mk, &running, keys);           /* 0x41C */
@@ -1754,43 +1677,21 @@ int main(int argc, char **argv)
             game_restart();
         }
         if (dd2_button2 == 0) dave_fire_latch = 1;
-        if (getenv("DD2_TRACE_DAVE")) LOGF("B: before Obj_Frame");
         Obj_Frame();                       /* 0x1EAB: three passes */
         /* 0x1AC9: push-out from solid tiles along X (before this 0x1D76
            saved +0x22/+0x26 -- the edges before the move). */
         /* Dave's collision -- NOT here: it is done by the reactions of his records
            (0x4338/0x4380 for stand, walk, sight and 0x43A9 for jump and
            fall), as in the original.  The homemade per-frame call is removed. */
-        if (getenv("DD2_TRACE_DAVE")) {
-            dd2_obj *d = &dd2_objs[0];
-            LOGF("dave t=%d x=%d y=%d xm=%d ym=%d f2c=%d grav=%d info=%#06x spr=%d",
-                    tick, d->x, d->y, dd2_xmove, dd2_ymove, d->f2c, dave_jump_vy,
-                    (unsigned short)d->info, d->sprite);
-        }
-        if (getenv("DD2_TRACE_OBJS") && (tick % 20) == 0) {
-            int q;
-            for (q = 1; q < DD2_MAXOBJ; q++) {
-                dd2_obj *o = &dd2_objs[q];
-                if (!o->type) continue;
-                LOGF("  obj%d type=%d x=%d y=%d odir=%d f40=%d info=%#06x xm=%d react=%#06x",
-                     q, o->type, o->x, o->y, o->dir, o->f40, (unsigned short)o->info,
-                     dd2_xmove, (unsigned short)o->react);
-            }
-        }
         Level_Camera();                    /* 0x1BDC */
         /* 0x206B: scan tiles under Dave's bbox -- fills [0x906C] etc. */
         Level_ScanTiles(A.level.tiles, A.level.objs, A.level.w, A.level.h,
                         A.intile, dd2_objs[0].tx_l, dd2_objs[0].tx_t,
                         dd2_objs[0].tx_r, dd2_objs[0].tx_b);
-        if (getenv("DD2_TRACE_DOOR"))
-            LOGF("scan: bbox l=%d t=%d r=%d b=%d -> col=%d row=%d desc=%#06x type=%d tile=%#06x",
-                 dd2_objs[0].tx_l, dd2_objs[0].tx_t, dd2_objs[0].tx_r, dd2_objs[0].tx_b,
-                 dd2_scan_col, dd2_scan_row, dd2_door_desc, dd2_door_type, dd2_door_tile);
         camx = dd2_cam_x >> 4;
         camy = dd2_cam_y >> 4;
 
         /* --- render: tiles by camera + objects from the array ---------------- */
-        if (getenv("DD2_TRACE_DAVE")) LOGF("render: frame drawn, tick=%d", tick);
         memset(fb, 0, sizeof fb);
         {
             int tx, ty, px, py, k;
@@ -1836,10 +1737,6 @@ int main(int argc, char **argv)
                         int dy = ((o->y + sp->oy) >> 4) - camy;
                         if (dx + sp->w >= 0 && dx < DD2_W &&
                             dy + sp->h >= 0 && dy < DD2_H) {
-                            if (getenv("DD2_DEBUG_DRAW"))
-                                Plat_Log("  draw spr=%d at (%d,%d) size %dx%d obj=(%d,%d) bbox=(%d,%d)",
-                                        o->sprite, dx, dy, sp->w, sp->h, o->x, o->y,
-                                        o->bbox_l, o->bbox_t);
                             /* 0x2B0C has NO mirroring: the direction is already
                                encoded in the sprite index (0x181E/0x1D2A pick
                                rec[+0] for dir<=0 and rec[+2] for dir>0). */
@@ -1870,9 +1767,6 @@ int main(int argc, char **argv)
                at screen point (8, 8). */
             {
                 int spr = dave_ammo + 0x13;          /* AMMO0 = sprite 19 */
-                if (getenv("DD2_DEBUG_DRAW"))
-                    Plat_Log("  AMMO spr=%d ammo=%d info=%#06x", spr, dave_ammo,
-                            (unsigned short)dave_info);
                 if (spr >= 0 && spr < A.nsprites)
                     draw_sprite(spr, 8, 8, 0);
             }
@@ -1893,7 +1787,6 @@ int main(int argc, char **argv)
             }
             nextra = 0;      /* the queue is consumed; handlers refill it next frame */
         }
-        if (getenv("DD2_TRACE_DAVE")) LOGF("C: before present");
         Plat_Present(fb, DD2_W, DD2_H, cur_pal);
         if (readback && !rb_done) {
             /* verify what the *renderer* actually produces (blend/scale path) */
@@ -1916,51 +1809,6 @@ int main(int argc, char **argv)
             fb_to_rgba();
             write_bmp(shot, rgba, DD2_W, DD2_H);
             Plat_Log("wrote %s (%d objects)", shot, dd2_obj_count);
-            if (getenv("DD2_DEBUG_OBJ")) {
-                for (i = 0; i < DD2_MAXOBJ; i++)
-                    if (dd2_objs[i].type)
-                        Plat_Log("  obj type=%d spr=%d pos=(%d,%d) bbox=(%d,%d,%d,%d) dir=%d info=%#06x",
-                                dd2_objs[i].type, dd2_objs[i].sprite,
-                                dd2_objs[i].x, dd2_objs[i].y,
-                                dd2_objs[i].bbox_l, dd2_objs[i].bbox_t,
-                                dd2_objs[i].bbox_r, dd2_objs[i].bbox_b,
-                                dd2_objs[i].dir, (unsigned short)dd2_objs[i].info);
-                {
-                    int z = -1, k2;
-                    for (k2 = 0; k2 < DD2_MAXOBJ; k2++) {
-                        dd2_obj *q = &dd2_objs[k2];
-                        if (q->type != 2) continue;
-                        if (dd2_vp_l - 2 < q->tx_r && dd2_vp_t - 2 < q->tx_b &&
-                            dd2_vp_l + 0x17 > q->tx_l && dd2_vp_t + 0x0C > q->tx_t) {
-                            z = k2; break;
-                        }
-                    }
-                    Plat_Log("  DAVE y=%d ymove=%d f22=%d f24=%d f26=%d f28=%d tx=(%d,%d,%d,%d) bbox_b=%d hit=(%d%d%d%d)",
-                            dd2_objs[0].y, dd2_objs[0].ymove,
-                            dd2_objs[0].f22, dd2_objs[0].f24, dd2_objs[0].f26, dd2_objs[0].f28,
-                            dd2_objs[0].tx_l, dd2_objs[0].tx_t, dd2_objs[0].tx_r, dd2_objs[0].tx_b,
-                            dd2_objs[0].bbox_b,
-                            dd2_objs[0].hit_above, dd2_objs[0].hit_below,
-                            dd2_objs[0].hit_left, dd2_objs[0].hit_right);
-                    if (z >= 0)
-                        Plat_Log("  ZOMBIE(on screen) slot=%d x=%d y=%d f40=%d info=%#06x dir=%d tx=(%d,%d) | update_calls=%d",
-                                z, dd2_objs[z].x, dd2_objs[z].y, dd2_objs[z].f40,
-                                (unsigned short)dd2_objs[z].info, dd2_objs[z].dir,
-                                dd2_objs[z].tx_l, dd2_objs[z].tx_r, dd2_update_calls);
-                    else
-                        Plat_Log("  no zombie on screen; update_calls=%d visible=%d vp=%d,%d",
-                                dd2_update_calls, dd2_visible_calls, dd2_vp_l, dd2_vp_t);
-                }
-                Plat_Log("  hook=%d nsprites=%d infobase=%#x", dd2_obj_perframe != 0,
-                        A.nsprites, DD2_ACTORINFO_BASE);
-                Plat_Log("  vp=(%d,%d) tx=(%d,%d,%d,%d)", dd2_vp_l, dd2_vp_t,
-                        dd2_objs[0].tx_l, dd2_objs[0].tx_t,
-                        dd2_objs[0].tx_r, dd2_objs[0].tx_b);
-                Plat_Log("  cam=(%d,%d) player=(%d,%d) spr=%d cmd=%d/%d b1=%d info=%#06x react=%d calls=%d",
-                        camx, camy, dd2_objs[0].x, dd2_objs[0].y, dd2_objs[0].sprite,
-                        dd2_cmd, dave_cmd, dd2_button1, (unsigned short)dd2_objs[0].info,
-                        dd2_objs[0].react, dave_react_calls);
-            }
             running = 0;
         }
         /* Level loop post-frame block (0x226E..0x239B): death / level complete. */
