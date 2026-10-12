@@ -236,15 +236,15 @@ static void Screen_Status(void)
     const dd2_sprite *sp = &A.sprites[1];
     Video_CenterPanel(&A, 0x0E, 0x0E);            /* 0x81AE(0x0E, 0x0E) */
     dd2_text_y += 4;                              /* 0x0575 */
-    Video_PrintStrC("Score");                     /* 0x057A, string 0x2FD */
+    Video_PrintStrC("Score\n");                   /* 0x057A, string 0x2FD */
     snprintf(buf, sizeof buf, "%u", dd2_score_lo + (dd2_score_hi * 65536u));
     Video_PrintStrC(buf);                         /* 0x059D */
-    Video_PrintStr("\n\n");                        /* 0x05A2 */
-    Video_PrintStrC("High Score");                /* 0x05AB */
+    Video_PrintStr("\n\n");                        /* 0x05A2, string 0x304 */
+    Video_PrintStrC("High Score\n");              /* 0x05AB, string 0x307 */
     snprintf(buf, sizeof buf, "%u", high_score_lo + (high_score_hi * 65536u));
     Video_PrintStrC(buf);
-    Video_PrintStr("\n\n");                        /* 0x05D3 */
-    Video_PrintStrC("Daves");                     /* 0x05DC */
+    Video_PrintStr("\n\n");                        /* 0x05D3, string 0x313 */
+    Video_PrintStrC("Daves\n");                   /* 0x05DC, string 0x316 */
     /* 0x05E5..0x0621: min(lives,8) icons of sprite 1, x = 0xA4 - 8*n + 0x10*i,
        y = [0x422A].  The original draws them instead of a number. */
     n = dd2_lives > 8 ? 8 : dd2_lives;
@@ -346,12 +346,20 @@ static void Screen_JoyConfig(void)
     sy = dd2_text_y;
 
     for (k = 0; k < 2; k++) {
-        /* 0x6BE6/0x6BEF: the two prompts (plain print) */
-        dd2_text_x = dd2_text_left; dd2_text_y = sy;
+        /* 0x6BE6/0x6BEF: the two prompts (plain print).  The second one is
+           DS:0x2977 = "\n\nHold the joystick in the\n" and is printed after a
+           0x8EC3(8) wait (0x6CA2); the text cursor is NOT reset in between,
+           otherwise the second prompt overwrites the first. */
+        if (k == 0) {
+            dd2_text_x = dd2_text_left; dd2_text_y = sy;
+        } else {
+            for (i = 0; i < 8; i++) Video_TickDelay();      /* 0x6CA2: 0x8EC3(8) */
+        }
         Video_PrintStr(k == 0
             ? "Hold the joystick in the\nUPPER LEFT corner and\npress a button:"
-            : "Hold the joystick in the\nLOWER RIGHT corner and\npress a button:");
+            : "\n\nHold the joystick in the\nLOWER RIGHT corner and\npress a button:");
         present_now();
+        sy = dd2_text_y;     /* 0x915A uses the current [0x422A] for the spinner */
         /* 0x6BF8-0x6C39: spinner + wait for a button */
         tile = 0x0F;
         for (;;) {
@@ -928,6 +936,7 @@ static void game_start_level(int n)
        object frame -- 0x2268 sets [0x5206] = 1, 0x226E calls 0x1EAB, 0x2271
        clears it.  Without it the first rendered frame of every level was one
        object update behind the original. */
+    Obj_DeltaReset();                  /* 0x2214-0x2226: delta/tick counters */
     Obj_Frame();
 }
 
@@ -1219,6 +1228,60 @@ static void log_open(void)
 }
 
 
+/* 0x754B: the device is selected by [0x97D6] (dd2_input_mode): 0 = keyboard,
+   2/3 = joystick (only after the F4 calibration; the boot value is 0, 0x1705).
+   The original therefore never reads the pad in mode 0, and modes 2/3 differ
+   in the button order.  Returns without touching anything in keyboard mode.
+   (The 0x73AE axes and the 0x7386 button masks are applied here; the keyboard
+   path of 0x754B is Input_Frame(keys).) */
+static void input_apply_pad(void)
+{
+    int pc, btns;
+    if (dd2_input_mode < 2) return;
+    pc = Plat_PadCmd();                  /* raw index 0..8, -1 = no pad */
+    /* 0x73AE maps the 3x3 grid through CS:0x7539; index 4 (centred) = 8.
+       In joystick mode 0x754B calls 0x73AE instead of 0x71A5, so the keyboard
+       is not read at all and the command comes solely from the stick. */
+    dd2_cmd = (uint8_t)((pc >= 0) ? Input_CmdFromIndex(pc) : 8);
+    btns = Plat_PadButtons();
+    dd2_button1 = dd2_button2 = 0;
+    if (dd2_input_mode == 2) {
+        if (btns & 1) dd2_button1 = 1;
+        if (btns & 2) dd2_button2 = 1;
+    } else {
+        if (btns & 1) dd2_button2 = 1;
+        if (btns & 2) dd2_button1 = 1;
+    }
+    if (dd2_button_swap) {               /* [0xA6DE] */
+        uint8_t t = dd2_button1; dd2_button1 = dd2_button2; dd2_button2 = t;
+    }
+}
+
+/* 0x41C -- F-menu dispatcher, shared by the game loop (0x2134) and the title
+   loop (0x157F).  `mk` is the menu key code returned by Input_MenuKey. */
+static void menu_dispatch(int mk, int *running, bool *keys)
+{
+    switch (mk) {
+    case 0x01: menu_prompt(0x01, running);          /* QUIT (Y/N)? */
+        memset(keys, 0, sizeof(bool) * 128); break; /* 0x75D7 */
+    case 0x0F: Screen_Status(); break;              /* 0x55B TAB: status */
+    case 0x3B: Screen_Info(); break;                /* 0x239 F1: information */
+    case 0x3C: menu_prompt(0x3C, running);          /* Sound (Y/N)? */
+        memset(keys, 0, sizeof(bool) * 128); break;
+    case 0x3F: menu_prompt(0x3F, running);          /* RESET GAME (Y/N)? */
+        memset(keys, 0, sizeof(bool) * 128); break;
+    case 0x3D: Screen_KeyConfig(); break;           /* 0x4C8 F3: keyboard */
+    case 0x3E: Screen_JoyConfig(); break;           /* 0x4D1 F4: joystick */
+    case 0x58:                                      /* 0x519 F12 -> 0x341 */
+        dd2_god_mode = !dd2_god_mode;               /* xor [0x4A8C],1 */
+        Video_CenterPanel(&A, 0x0F, 1);
+        Video_PrintStrC(dd2_god_mode ? "God mode on" : "God mode off");
+        present_now();
+        break;
+    default: break;
+    }
+}
+
 int main(int argc, char **argv)
 {
     const char *datadir = ".";
@@ -1448,27 +1511,43 @@ int main(int argc, char **argv)
                 } else { Video_TitleBegin(); fade_steps(0, 3); mode = 2; }
             } else {                           /* title loop (0x14F8) */
                 Video_AttractFrame();
+                /* 0x157F: the title loop also runs the F-menu dispatcher
+                   0x41C (ESC/F1/F2..F5/TAB), and 0x1586-0x15AA restores the
+                   picture bank (0x9313 row copy from 0x4000) that the menu
+                   screen drew over. */
+                {
+                    int mk = Input_MenuKey(keys);
+                    if (mk && menu_arm) {
+                        menu_arm = 0;
+                        menu_dispatch(mk, &running, keys);
+                        Video_TitlePics();
+                    } else if (!mk) {
+                        menu_arm = 1;
+                    }
+                }
                 if (attract) {
                     /* --attract: run the splash and capture frames */
                 } else if (!shot && !readback && !record) {
-                    int k;
-                    for (k = 0; k < 128; k++)
-                        if (keys[k]) {
-                            /* 0x15E2: key-table reset + SFX(0x16), then
-                               0x15EE `call 0x21B0` -- the game restart.  Without
-                               it the level was reused as-is: after a game over the
-                               stale death flag [0x8C38] was still negative, so
-                               every visit to the title re-ran the death handler
-                               and the life counter ran away into the negative. */
-                            memset(keys, 0, sizeof keys);
-                            if (dd2_sfx) dd2_sfx(0x16);
-                            /* 0x15EE: call 0x21B0 (a new game, level 1).  The
-                               --level override is a port test feature, so it
-                               starts the requested level instead. */
-                            if (level > 1) game_restart_at(level);
-                            else           game_restart();
-                            mode = 0; tick = 0; break;
-                        }
+                    /* 0x15CC-0x15DF: the game starts only on SPACE ([0x2BBB])
+                       or a joystick button read by 0x754B (modes 2/3) -- the
+                       previous port started on ANY key. */
+                    int padstart = (dd2_input_mode >= 2) && (Plat_PadButtons() & 3);
+                    if (keys[0x39] || padstart) {
+                        /* 0x15E2: key-table reset + SFX(0x16), then
+                           0x15EE `call 0x21B0` -- the game restart.  Without
+                           it the level was reused as-is: after a game over the
+                           stale death flag [0x8C38] was still negative, so
+                           every visit to the title re-ran the death handler
+                           and the life counter ran away into the negative. */
+                        memset(keys, 0, sizeof keys);
+                        if (dd2_sfx) dd2_sfx(0x16);
+                        /* 0x15EE: call 0x21B0 (a new game, level 1).  The
+                           --level override is a port test feature, so it
+                           starts the requested level instead. */
+                        if (level > 1) game_restart_at(level);
+                        else           game_restart();
+                        mode = 0; tick = 0;
+                    }
                 } else if (tick >= 1) {
                     if (level > 1) game_restart_at(level);   /* 0x15EE: 0x21B0 */
                     else           game_restart();
@@ -1557,24 +1636,8 @@ int main(int argc, char **argv)
         if (getenv("DD2_TRACE_DAVE")) LOGF("A: after attract, mode=%d", mode);
         /* --- update ------------------------------------------------- */
         if (walk > 0) { keys[0x4D] = true; walk--; }
-        Input_Frame(keys);                 /* 0x71A5: keyboard */
-        if (dd2_input_mode >= 2) {
-            /* 0x754B: [0x97D6] selects the device -- 0 = keyboard, 2/3 = the
-               joystick (only after the F4 calibration; the boot value is 0,
-               0x1705).  Mode 2/3 differ in the button order. */
-            int pc = Plat_PadCmd();          /* raw index 0..8, -1 = no pad */
-            if (pc >= 0 && pc != 4) dd2_cmd = (uint8_t)Input_CmdFromIndex(pc);
-            if (dd2_input_mode == 2) {
-                if (Plat_PadButtons() & 1) dd2_button1 = 1;
-                if (Plat_PadButtons() & 2) dd2_button2 = 1;
-            } else {
-                if (Plat_PadButtons() & 1) dd2_button2 = 1;
-                if (Plat_PadButtons() & 2) dd2_button1 = 1;
-            }
-            if (dd2_button_swap) {           /* [0xA6DE] */
-                uint8_t t = dd2_button1; dd2_button1 = dd2_button2; dd2_button2 = t;
-            }
-        }
+        if (dd2_input_mode < 2) Input_Frame(keys);   /* 0x71A5: keyboard */
+        input_apply_pad();                           /* 0x73AE: joystick (mode 2/3) */
 
         /* 0x41C: F-MENU DISPATCHER.  By the key code the original goes to
            separate handlers, each draws a frame (0x81AE) and a line,
@@ -1586,26 +1649,7 @@ int main(int argc, char **argv)
             if (getenv("DD2_TRACE_MENU")) LOGF("menu: tick=%d mk=%#x arm=%d", tick, mk, menu_arm);
             if (mk && menu_arm) {
                 menu_arm = 0;
-                switch (mk) {
-                case 0x01: menu_prompt(0x01, &running);         /* QUIT (Y/N)? */
-                    memset(keys, 0, sizeof keys); break;       /* 0x75D7 */
-                case 0x0F: Screen_Status(); break;             /* 0x55B TAB: status */
-                case 0x3B: Screen_Info(); break;               /* 0x239 F1: information */
-                case 0x3C: menu_prompt(0x3C, &running);         /* Sound (Y/N)? */
-                    memset(keys, 0, sizeof keys); break;
-                case 0x3F: menu_prompt(0x3F, &running);         /* RESET GAME (Y/N)? */
-                    memset(keys, 0, sizeof keys); break;
-                case 0x3D: Screen_KeyConfig(); break;          /* 0x4C8 F3: keyboard */
-                case 0x3E: Screen_JoyConfig(); break;          /* 0x4D1 F4: joystick */
-                case 0x58:                                     /* 0x519 F12 -> 0x341 */
-                    dd2_god_mode = !dd2_god_mode;              /* xor [0x4A8C],1 */
-                    Video_CenterPanel(&A, 0x0F, 1);
-                    Video_PrintStrC(dd2_god_mode ? "God mode on"
-                                                 : "God mode off");
-                    present_now();
-                    break;
-                default: break;
-                }
+                menu_dispatch(mk, &running, keys);           /* 0x41C */
             } else if (!mk) menu_arm = 1;
         }
         /* --fire: hold the fire button, but NOT from the first frame -- the latch
@@ -1615,14 +1659,8 @@ int main(int argc, char **argv)
         /* --- update: 0x2585 (delta) + 0x754B (input) + 0x1EAB (frame) -- */
         if (walk > 0) { keys[0x4D] = true; walk--; }
         if (jump > 0) { keys[0x1D] = true; jump--; }
-        Input_Frame(keys);                 /* 0x71A5: keyboard */
-        {   /* 0x73AE/0x7386: if a gamepad is connected -- its axes and buttons
-               take priority (in the original the mode selects [0x97D6]). */
-            int pc = Plat_PadCmd();          /* raw index 0..8, -1 = no pad */
-            if (pc >= 0 && pc != 4) dd2_cmd = (uint8_t)Input_CmdFromIndex(pc);
-            if (Plat_PadButtons() & 1) dd2_button1 = 1;
-            if (Plat_PadButtons() & 2) dd2_button2 = 1;
-        }
+        if (dd2_input_mode < 2) Input_Frame(keys);   /* 0x71A5: keyboard */
+        input_apply_pad();                           /* 0x73AE: joystick (mode 2/3) */
         dave_cmd         = dd2_cmd;        /* [0x8BB2] */
         dave_button1     = dd2_button1;    /* [0x8BB4] jump */
         dave_button2     = dd2_button2;    /* [0x8BB6] fire  */
@@ -1713,29 +1751,34 @@ int main(int argc, char **argv)
                forward put Dave (slot 0) underneath every enemy he overlapped. */
             for (k = DD2_MAXOBJ - 1; k >= 0; k--) {
                 dd2_obj *o = &dd2_objs[k];
-                const dd2_sprite *sp;
-                int dx, dy;
                 if (o->type == 0) continue;
-                if (o->sprite < 0 || o->sprite >= A.nsprites) continue;
-                sp = &A.sprites[o->sprite];
-                if (!sp->px) continue;
-                /* 0x2B0C: draw position = object position + origin */
-                dx = ((o->x + sp->ox) >> 4) - camx;
-                dy = ((o->y + sp->oy) >> 4) - camy;
-                if (dx + sp->w < 0 || dx >= DD2_W) continue;
-                if (dy + sp->h < 0 || dy >= DD2_H) continue;
-                if (getenv("DD2_DEBUG_DRAW"))
-                    Plat_Log("  draw spr=%d at (%d,%d) size %dx%d obj=(%d,%d) bbox=(%d,%d)",
-                            o->sprite, dx, dy, sp->w, sp->h, o->x, o->y,
-                            o->bbox_l, o->bbox_t);
-                /* 0x2B0C has NO mirroring: the direction is already encoded
-                   in the sprite index (0x181E/0x1D2A pick rec[+0] for dir<=0
-                   and rec[+2] for dir>0).  Mirroring here flipped the
-                   already-correct left sprite, so Dave never appeared to turn. */
-                if (o->timer != 0)      /* +0x46: hit -> flash (0x2C2D/0x61B7) */
-                    draw_sprite_flash(o->sprite, dx, dy);
-                else
-                    draw_sprite(o->sprite, dx, dy, 0);
+                /* 0x2B0C/0x2C2D are called only from the reactions, and the
+                   original never queues sprite 0 ("STARTDAVE", 8x8).  Only the
+                   four records 0x0EB0/0x0F3C (react == 0) and 0x102C/0x1040
+                   (reacts 0x4E73/0x4F0A, which queue just the rope extras
+                   0x9A/0x99) carry sprite 0, so drawing it showed a spurious
+                   blob on the rope/ghost records. */
+                if (o->sprite > 0 && o->sprite < A.nsprites) {
+                    const dd2_sprite *sp = &A.sprites[o->sprite];
+                    if (sp->px) {
+                        int dx = ((o->x + sp->ox) >> 4) - camx;   /* 0x2B0C */
+                        int dy = ((o->y + sp->oy) >> 4) - camy;
+                        if (dx + sp->w >= 0 && dx < DD2_W &&
+                            dy + sp->h >= 0 && dy < DD2_H) {
+                            if (getenv("DD2_DEBUG_DRAW"))
+                                Plat_Log("  draw spr=%d at (%d,%d) size %dx%d obj=(%d,%d) bbox=(%d,%d)",
+                                        o->sprite, dx, dy, sp->w, sp->h, o->x, o->y,
+                                        o->bbox_l, o->bbox_t);
+                            /* 0x2B0C has NO mirroring: the direction is already
+                               encoded in the sprite index (0x181E/0x1D2A pick
+                               rec[+0] for dir<=0 and rec[+2] for dir>0). */
+                            if (o->flash_draw)   /* +0x46: hit -> flash (0x2C2D/0x61B7), latched pre-decrement */
+                                draw_sprite_flash(o->sprite, dx, dy);
+                            else
+                                draw_sprite(o->sprite, dx, dy, 0);
+                        }
+                    }
+                }
                 /* extra sprites queued by this slot's reaction (rope, ...) */
                 for (i = 0; i < nextra; i++) {
                     const dd2_sprite *es;
@@ -1853,7 +1896,11 @@ int main(int argc, char **argv)
         if (level_after_frame()) {
             if (game_to_title) {               /* 0x256E -> 0x1785: title again */
                 game_to_title = 0;
+                /* 0x14F8 is re-entered from scratch: it always runs the
+                   0x7F6C fade-out (0x1505) and the 0x7F13 fade-in (0x1527). */
+                fade_steps(3, 0);
                 Video_TitleBegin();
+                fade_steps(0, 3);
                 mode = 2;
                 tick = 0;
             }

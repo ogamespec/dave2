@@ -1,5 +1,9 @@
 # Dangerous Dave 2 -- SDL3 port
-SDL3_PREFIX ?= /mnt/c/Games/DD2/re/third_party/sdl3-install
+# Prefer a self-contained SDL3 under the tree; fall back to the historical
+# external prefix.
+SDL3_PREFIX ?= $(firstword $(wildcard re/third_party/sdl3-install) \
+                           $(wildcard ../re/third_party/sdl3-install) \
+                           /mnt/c/Games/DD2/re/third_party/sdl3-install)
 CC      ?= gcc
 CFLAGS  ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
 CFLAGS  += -I$(SDL3_PREFIX)/include

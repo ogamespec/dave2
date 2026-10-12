@@ -236,6 +236,7 @@ void Obj_WolfBounce(dd2_obj *o, const uint16_t *tiles, const uint8_t *north,
         o->timer = (int16_t)(o->timer - (int16_t)dd2_frame_delta);
         if (o->timer < 0) o->timer = 0;
     }
+    Obj_OffscreenCheck(o);                           /* 0x4CDC: call 0x30C0 */
 }
 
 /* -------------------------------------------------------------------------
@@ -257,8 +258,9 @@ void Obj_TimerCullReact(dd2_obj *o)
     Obj_OffscreenCheck(o);                                /* 0x2EAC: call 0x30C0 */
 }
 
-/* 0x2FF6 -- SLIME/SPIDER reaction: full push-out, check of the tile ABOVE
-   the object (row tx_t - 1, SOUTH table) and turn at a wall. */
+/* 0x2FF6 -- SLIME/SPIDER reaction: push-out, then look at the tile row just
+   below the object's bottom edge (row tx_b - 1, column at the leading edge,
+   SOUTH table) and turn around when it is empty or a wall is ahead. */
 void Obj_SlimeSpiderReact(dd2_obj *o, const uint16_t *tiles, const uint8_t *south,
                           const uint8_t *north, const uint8_t *east,
                           const uint8_t *west, int w, int h)
@@ -268,16 +270,16 @@ void Obj_SlimeSpiderReact(dd2_obj *o, const uint16_t *tiles, const uint8_t *sout
     Obj_PushOutX(o, tiles, east, west, w, h);             /* 0x2FF7: call 0x19E7 */
     Obj_PushOutY(o, tiles, north, south, w, h);
 
-    row = o->tx_t - 1;                                    /* 0x3001 / 0x300F */
+    row = o->tx_b - 1;                                    /* 0x3001 / 0x300F: [0x8BEC]-1 */
     col = (dd2_dir_x > 0) ? o->tx_r : o->tx_l;
     tile = 0;
     if (row >= 0 && row < h && col >= 0 && col < w)
         tile = tiles[row * w + col];
     type = (tile <= 857) ? south[tile] : 0;               /* 0x4A94 */
 
-    if (type != 0 &&                                       /* 0x3031 */
-        ((o->hit_left && dd2_dir_x == -1) ||              /* 0x3035 / 0x3043 */
-         (o->hit_right && dd2_dir_x == 1))) {
+    if (type == 0 ||                                       /* 0x3031-0x3033: empty ahead */
+        (o->hit_left && dd2_dir_x == -1) ||               /* 0x3035 / 0x3043 */
+        (o->hit_right && dd2_dir_x == 1)) {               /* 0x3043 / 0x304A */
         dd2_dir_x = -dd2_dir_x;                           /* 0x3051 */
         memcpy(dd2_prev_frame, dd2_cur_frame, sizeof dd2_prev_frame);
         Obj_SetState(o, o->info);                         /* 0x306B */
@@ -404,11 +406,19 @@ void Obj_ZombieDownReact(dd2_obj *o, dd2_obj *dave, const uint16_t *tiles,
    0x0DD4) in the facing direction; when dir_x > 0 the throw point is shifted by +0x200. */
 void Obj_HunchThrow(dd2_obj *o)
 {
+    int slot;
     if (!o) return;
     if (dd2_dir_x > 0)                                    /* 0x476B */
-        Obj_Spawn(0x10, o->x + 0x200, o->y, 1, 0x0DD4);
+        slot = Obj_Spawn(0x10, o->x + 0x200, o->y, 1, 0x0DD4);
     else
-        Obj_Spawn(0x10, o->x, o->y, -1, 0x0DD4);
+        slot = Obj_Spawn(0x10, o->x, o->y, -1, 0x0DD4);
+    if (slot >= 0) {
+        dd2_objs[slot].f48[0] = 0;                        /* 0x47A5: [bx+0x48] = 0 */
+        dd2_objs[slot].f02 = 1;                           /* 0x47AA: [bx+2] = 1 */
+    }
+    /* 0x47AF: [0x8C16] = 4 -- 0x1D76 defers the record fn for 4 cycles, so the
+       hunchback is silent for ~32 ticks after a throw. */
+    o->f42 = 4;
 }
 
 /* 0x47B6 -- KNIFEW reaction: push out along X ONLY; if it hit something it got
@@ -981,11 +991,22 @@ void Obj_FrankAnim(dd2_obj *o)
  * ---------------------------------------------------------------------- */
 void Obj_FrankThrow(dd2_obj *o)
 {
+    int slot;
     if (!o) return;
     if (dd2_dir_x > 0)                             /* 0x4FB4 */
-        Obj_Spawn(0x11, o->bbox_r, o->y + 0x100, 1, 0x11F8);
+        slot = Obj_Spawn(0x11, o->bbox_r, o->y + 0x100, 1, 0x11F8);
     else
-        Obj_Spawn(0x11, o->bbox_l - 0x100, o->y + 0x100, -1, 0x11F8);
+        slot = Obj_Spawn(0x11, o->bbox_l - 0x100, o->y + 0x100, -1, 0x11F8);
+    if (slot < 0) return;
+    /* 0x4FF0-0x5005: the freshly spawned fireball is configured through
+       [0x8BBE] -- dir_y = 1 (so 0x5006 gives it a vertical speed), health = 1,
+       [+0x4A] = 1 (explosive, tested at 0x3C82) and [+0x48] = 1 (vulnerable,
+       tested at 0x3C62).  Without this the spark flew horizontally and could
+       not be shot. */
+    dd2_objs[slot].f3c = 1;                        /* [bx+0x3C] */
+    dd2_objs[slot].health = 1;                     /* [bx+0x3E] */
+    dd2_objs[slot].f48[1] = 1;                     /* [bx+0x4A] */
+    dd2_objs[slot].f48[0] = 1;                     /* [bx+0x48] */
 }
 
 /* -------------------------------------------------------------------------
@@ -1512,6 +1533,17 @@ void Obj_Delta(void)
     s_ticks_prev = now;
 }
 
+/* 0x2214-0x2226 (level start): [0x8C6A] = 0, [0x8C3E]/[0x8C40] = 0,
+   [0x2C8D]/[0x2C8F] = 0.  Without it the startup frame 0x226E on levels
+   2..8 inherited the leftover delta / loading time and moved the objects
+   one step too far. */
+void Obj_DeltaReset(void)
+{
+    dd2_frame_delta = 0;              /* [0x8C6A] */
+    dd2_ticks = 0;                    /* [0x2C8D]/[0x2C8F] */
+    s_ticks_prev = 0;                 /* [0x8C3E]/[0x8C40] */
+}
+
 /* 0x1D76: universal object update (animation + speeds + call of the per-frame
    function).  Ported from the disassembly, see PORT_PLAN.md 12/12.1. */
 void Obj_SetState(dd2_obj *o, int rec);
@@ -1848,6 +1880,10 @@ void Obj_Frame(void)
            and stored back after each reaction -- otherwise the reactions'
            turn decisions are lost. */
         dd2_dir_x = dd2_cur.dir; dd2_dir_y = dd2_cur.f3c;
+        /* 0x307A: the original decides flash-vs-normal BEFORE it subtracts
+           the delta from [+0x46], so the frame the timer reaches 0 still
+           flashes (20 frames, not 19). */
+        dd2_cur.flash_draw = (dd2_cur.timer != 0) ? 1 : 0;
         if (dd2_frame_react) dd2_frame_react(&dd2_cur);    /* call [0x8C2C] */
         dd2_cur.dir = (int16_t)dd2_dir_x; dd2_cur.f3c = (int16_t)dd2_dir_y;
         memcpy(o, &dd2_cur, sizeof dd2_cur);               /* 0x1E96 */

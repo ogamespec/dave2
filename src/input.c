@@ -173,7 +173,8 @@ int Input_WaitKey(void)
         int sc = Plat_WaitScancode(7);          /* ~one 140 Hz tick */
         if (sc > 0) return sc;                  /* 0x75FA: a key */
         if (sc < 0) return 0;                   /* the window was closed */
-        if (Plat_PadButtons() & 3) return 0x39; /* 0x7627: a pad button */
+        if (dd2_input_mode >= 2 && (Plat_PadButtons() & 3))
+            return 0x39;                        /* 0x7627: a pad button */
         /* Headless runs (dummy video driver, --record/--shot) have no way to
            deliver a key, so the otherwise endless wait is bounded there; a
            real window waits forever, as the original does. */

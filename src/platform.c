@@ -87,6 +87,13 @@ int Plat_VideoInit(int scale)
         Plat_Log("SDL_Init: %s", SDL_GetError());
         return 0;
     }
+    /* 0x72E8 get the gamepad/joystick subsystem up: SDL_GetGamepads() reports
+       nothing until SDL_INIT_GAMEPAD (or SDL_INIT_JOYSTICK) was requested, so
+       without this the whole joystick path (0x72E8/0x73AE/0x7386, the F4
+       calibration screen) was unreachable.  Failure is not fatal: a machine
+       without joystick drivers must still run the game. */
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD))
+        Plat_Log("gamepad subsystem unavailable: %s", SDL_GetError());
     p_win = SDL_CreateWindow("Dangerous Dave in the Haunted Mansion (SDL3 port)",
                              scale * 320, scale * 200, 0);
     if (!p_win) { Plat_Log("CreateWindow: %s", SDL_GetError()); return 0; }
@@ -385,7 +392,15 @@ static int          p_pad_ok;
 static void plat_open_pad(void)
 {
     int n = 0;
-    SDL_JoystickID *ids = SDL_GetGamepads(&n);      /* 0x72E8 */
+    SDL_JoystickID *ids;
+    /* A disconnected gamepad must not disable the joystick for the rest of the
+       session: drop the dead handle and re-open on the next poll. */
+    if (p_pad && !SDL_GamepadConnected(p_pad)) {
+        SDL_CloseGamepad(p_pad);
+        p_pad = NULL;
+        p_pad_ok = 0;
+    }
+    ids = SDL_GetGamepads(&n);                      /* 0x72E8 */
     if (ids) {
         if (n > 0) {
             p_pad = SDL_OpenGamepad(ids[0]);

@@ -279,20 +279,21 @@ static int font_h(void)  { return dd2_fontseg[0] | (dd2_fontseg[1] << 8); }
 static int font_w(int ch) { return dd2_fontseg[(0x202 + ch) & 0xFFF]; }
 static int font_wb(int ch) { return (font_w(ch) + 7) >> 3; }
 
-/* pixel in the plane: we write the whole colour (0 bits clear the pixel) --
-   this is write-mode-0 behaviour with map mask = colour (0x9347, SEQ2=[0x4226]). */
-static void screen_pixel(int x, int y, int color)
+/* Pixel in the plane.  0x9347 sets GC3 = [0x422C] = 0x18 (function select 3 =
+   XOR, rotate 0) and SEQ2 = [0x4226] = 0x0F (all four planes), so every set
+   glyph pixel inverts the four planes of the background: ink = background
+   XOR 15, the rest of the background is untouched.  (The previous port wrote a
+   fixed colour -- 0/8/15 -- which happened to match only on the uniform white
+   and grey panels and leaked between the screens.) */
+static void screen_xor_pixel(int x, int y)
 {
     int off, sh, p;
     if (x < 0 || x >= DD2_VIRTUAL_W || y < 0 || y >= DD2_H) return;
     off = dd2_base + y * dd2_stride + (x >> 3);
     if (off < 0 || off >= DD2_PLANE) return;
     sh = 7 - (x & 7);
-    for (p = 0; p < 4; p++) {
-        int a = p * DD2_PLANE + off;
-        if ((color >> p) & 1) dd2_vram[a] |= (uint8_t)(1 << sh);
-        else                  dd2_vram[a] &= (uint8_t)~(1 << sh);
-    }
+    for (p = 0; p < 4; p++)
+        dd2_vram[p * DD2_PLANE + off] ^= (uint8_t)(1 << sh);
 }
 
 static void font_draw(int ch, int x, int y)
@@ -305,14 +306,10 @@ static void font_draw(int ch, int x, int y)
         for (c = 0; c < wb; c++) {
             unsigned b = dd2_fontseg[base + r * wb + c];
             for (k = 0; k < 8; k++)
-                /* Transparent: only the glyph pixels are written, the panel
-                   behind them is preserved.  Verified against the DOSBox
-                   reference `start_06`: the "LEVEL 1" strokes are colour 0 on
-                   the white panel (a 15/0 opaque box, as an earlier port
-                   version drew, does not appear there), and the score digits
-                   are colour 8 on the grey panel. */
+                /* Only the glyph pixels are written (the background shows
+                   through); each one XORs the four planes, as above. */
                 if ((b >> (7 - k)) & 1)
-                    screen_pixel(x + c * 8 + k, y + r, dd2_text_color);
+                    screen_xor_pixel(x + c * 8 + k, y + r);
         }
 }
 
@@ -394,7 +391,13 @@ void Video_AttractBegin(void)
     dd2_base = 0;
 }
 
-/* 0x14F8, prologue: width, scroll to 0, base 0, 0x7938 and 0x14A0. */
+/* 0x14F8, prologue: width, scroll to 0, base 0, 0x7938 and 0x14A0.
+   The original resets si = 0 and [0x9060] = 0 at 0x152A-0x152F on *every*
+   entry to 0x14F8 (called from the 0x1785 loop), so the phase counter has to
+   restart too whenever the title screen is (re)entered -- e.g. from
+   game over via 0x256E -> 0x1785. */
+static int dd2_attract_si;      /* si of the 0x14F8 title loop */
+
 void Video_TitleBegin(void)
 {
     Video_SetWidth(DD2_STRIDE);
@@ -403,6 +406,7 @@ void Video_TitleBegin(void)
     Video_Prep();
     Video_TitlePics();
     dd2_scroll = 0;
+    dd2_attract_si = 0;                               /* 0x152A-0x152F */
 }
 
 /* Body of the 0x14F8 loop (one iteration = one frame):
@@ -415,14 +419,16 @@ void Video_TitleBegin(void)
    In total the cycle is exactly 481 frames: 201 frames s=0, 80 frames of
    acceleration to 320, 120 frames s=320, 80 frames of return. Verified by AVI:
    period 481 frames, static stretches of 202 and 121 frames. */
+
 void Video_AttractFrame(void)
 {
-    static int si;
+    int si = dd2_attract_si;
     if (si > 0xC8 && si <= 0x118) dd2_scroll += 4;
     if (si > 0x190 && si <= 0x1E0) dd2_scroll -= 4;
     if (si > 0x1E0) { si = 0; dd2_scroll = 0; }
     Video_SetScroll(dd2_scroll);
     si++;
+    dd2_attract_si = si;
     dd2_base = dd2_scroll >> 3;
 }
 

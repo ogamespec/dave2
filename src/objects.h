@@ -48,6 +48,10 @@ typedef struct {
     int16_t  f40, f42;          /* +0x40, +0x42 */
     int16_t  info;              /* +0x44 -- offset of the actor-info record */
     int16_t  timer;             /* +0x46 */
+    int16_t  flash_draw;        /* port: timer was != 0 BEFORE the react ran
+                                   (the original picks 0x2C2D at 0x307A before
+                                   the [+0x46] decrement, so the 1 -> 0 frame
+                                   is still drawn inverted) */
     int16_t  f48[7];            /* +0x48..+0x54 */
     int16_t  react_obj;         /* +0x56 -- object-vs-object reaction */
     int16_t  react;             /* +0x58 -- per-frame reaction (end: +0x5A = 90) */
@@ -79,6 +83,7 @@ int  Obj_Spawn(int type, int x, int y, int dir, int info);
    counter maintained by the timer ISR; [0x2C8D]/[0x2C8F]). */
 extern uint32_t dd2_ticks;            /* [0x2C8D]/[0x2C8F] */
 void Obj_Delta(void);
+void Obj_DeltaReset(void);            /* 0x2214-0x2226: level-start zeroing */
 
 /* 0x18DC -- intersection of the bboxes of two objects (AABB). */
 int  Obj_Overlap(const dd2_obj *a, const dd2_obj *b);
