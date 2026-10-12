@@ -1067,9 +1067,13 @@ static void play_death_anim(int code)
         Plat_PumpEvents();
         {
             const bool *keys = Plat_Keys();
-            int q;
-            for (q = 0; q < 128; q++)
-                if (keys[q]) return;             /* [0x2B83]: abort on a key */
+            /* 0x2322: `cmp byte ptr [0x2B83],0 / jne 0x2338`.  [0x2B83] is the
+               key-state byte for SCAN CODE 1, i.e. ESC -- the keyboard ISR
+               writes the table at 0x8BFD as `[0x2B82 + scan]` (the port used to
+               abort on ANY held key, so holding fire/jump cut the animation
+               after one frame).  Holding ESC at startup also gates the intro
+               (0x1773) and the map screen (0x21FF). */
+            if (keys[0x01]) return;
         }
     }
 }
