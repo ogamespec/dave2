@@ -6,12 +6,82 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\src\main.c"><Filter>src</Filter></ClCompile>
-    <ClCompile Include="..\src\dd2.c"><Filter>src</Filter></ClCompile>
+    <ClCompile Include="..\src\main.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\dd2.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\dave.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\input.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\level.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\objects.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\platform.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\sound.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\star.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\video.c">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\src\dd2.h"><Filter>src</Filter></ClInclude>
-    <ClInclude Include="..\src\dd2_actorinfo.h"><Filter>src</Filter></ClInclude>
-    <ClInclude Include="..\src\dd2_tileattr.h"><Filter>src</Filter></ClInclude>
+    <ClInclude Include="..\src\dd2.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\dd2_actorinfo.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\dd2_tileattr.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\dave.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\dd2_font.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\dd2_snddata.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\dd2_sounds.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\dd2_sprtable.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\dd2_tables.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\input.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\level.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\objects.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\sound.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\star.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\video.h">
+      <Filter>src</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
