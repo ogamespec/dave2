@@ -15,12 +15,15 @@ void LOGF(const char *f, ...) { (void)f; }
 
 int main(int argc, char **argv)
 {
-    const char *dir = (argc > 1) ? argv[1] : "/mnt/c/Games/DD2";
-    const char *ref = "/mnt/c/Games/DD2/re/audit/intro-logo.raw";
+    const char *dir = (argc > 1) ? argv[1] : "re/ref/orig";
+    const char *ref = "re/audit/intro-logo.raw";
     int fails = 0, di, si, k, x, y;
     unsigned char *raw;
     size_t got;
     FILE *f;
+
+    if (getenv("DD2_DATA"))     dir = getenv("DD2_DATA");
+    if (getenv("DD2_STAR_REF")) ref = getenv("DD2_STAR_REF");
 
     Star_TablesInit();
     for (k = 0, di = 2; di <= 0x100 && k < 128; di += 2, k++)
@@ -133,6 +136,28 @@ int main(int argc, char **argv)
         }
         printf("draw 1:1: %d differing pixels of %d%s\n", bad, STAR_LOGO_W * STAR_LOGO_H,
                bad ? "" : "  (exact)");
+        if (bad) fails++;
+    }
+
+    /* 0x649C at scale 256 must reproduce the 1:1 draw.  The scaled logo is
+       (255*256)>>8 = 255 columns wide, so column 255 is not covered. */
+    {
+        static unsigned char a[STAR_LOGO_W * STAR_LOGO_H];
+        static unsigned char b[STAR_LOGO_W * STAR_LOGO_H];
+        int bad = 0, x, y;
+        Star_DrawSpans(a, STAR_LOGO_W, STAR_LOGO_H);
+        memset(b, 0, sizeof b);
+        Star_DrawSpansScaled(b, STAR_LOGO_W, STAR_LOGO_H, 127, 32, 256,
+                             0, 0, STAR_LOGO_W - 1, STAR_LOGO_H - 1);
+        for (y = 0; y < STAR_LOGO_H; y++)
+            for (x = 0; x < STAR_LOGO_W - 1; x++)
+                if (a[y * STAR_LOGO_W + x] != b[y * STAR_LOGO_W + x]) {
+                    if (!bad) printf("  scale256 first diff at (%d,%d): %u vs %u\n",
+                                     x, y, a[y * STAR_LOGO_W + x], b[y * STAR_LOGO_W + x]);
+                    bad++;
+                }
+        printf("draw scale=256: %d differing of %d%s\n", bad,
+               (STAR_LOGO_W - 1) * STAR_LOGO_H, bad ? "" : "  (exact)");
         if (bad) fails++;
     }
 

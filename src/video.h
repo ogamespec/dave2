@@ -29,7 +29,8 @@ extern int dd2_scroll;              /* [0x9060] -- window shift, in pixels */
 extern int dd2_ega_plane;
 extern int g_fast;
 
-extern int dd2_text_x, dd2_text_y, dd2_text_color;   /* [0x4228],[0x422A],[0x4226] */
+extern int dd2_text_x, dd2_text_y;   /* [0x4228],[0x422A] */
+extern int dd2_text_top;             /* [0x97D0] -- panel top row (0x8125) */
 extern int dd2_text_left, dd2_text_right;            /* [0x9798],[0x979A] */
 
 const char *Video_DataDir(void);

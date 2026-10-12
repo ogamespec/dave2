@@ -33,7 +33,8 @@ int dd2_scroll;               /* [0x9060] */
 int dd2_ega_plane;            /* EGA state similar to [0x4230] */
 int g_fast = 1;               /* 1 = no delays (headless/tests) */
 
-int dd2_text_x, dd2_text_y, dd2_text_color;   /* [0x4228],[0x422A],[0x4226] */
+int dd2_text_x, dd2_text_y;   /* [0x4228],[0x422A] */
+int dd2_text_top;             /* [0x97D0] -- panel interior top row (0x8125) */
 int dd2_text_left, dd2_text_right = 0x140;    /* [0x9798],[0x979A] */
 
 /* ------------------------------------------------------------- helpers */
@@ -250,6 +251,7 @@ void Video_Panel(const dd2_assets *A, int x, int y, int w, int h)
     /* 0x80FF..0x812B: the text window/cursor for the panel interior. */
     dd2_text_left  = x * 8 + 8;                            /* [0x9798] */
     dd2_text_right = w * 8;                                /* [0x979A] */
+    dd2_text_top   = (y + 1) * 8;                          /* [0x97D0] */
     dd2_text_x     = (x + 1) * 8;                          /* [0x4228] */
     dd2_text_y     = (y + 1) * 8;                          /* [0x422A] */
 }
@@ -336,7 +338,10 @@ void Video_PrintStr(const char *s)
             dd2_text_y += 10;
             dd2_text_x = dd2_text_left;
         } else if (ch == 0x7F) {
-            dd2_text_color = (unsigned char)*s++ - 0x41;
+            /* 0x8797: the escape sets [0x4226] (SEQ2 map mask) from the next
+               byte - 0x41.  No shipping string contains 0x7F and the mask is
+               always 0x0F, so only the operand is consumed here. */
+            if (*s) s++;
         } else {
             Video_PrintChar(ch);
         }
@@ -383,7 +388,6 @@ void Video_AttractBegin(void)
     for (page = 0; page <= 0x4000; page += 0x4000) {
         dd2_base = page;
         dd2_text_y = 0xb4;
-        dd2_text_color = 15;
         Video_PrintStrC("Copyright (c) 1991 Softdisk inc.\n");
         Video_PrintStrC("'I' for information");
     }

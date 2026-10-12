@@ -25,6 +25,7 @@
 #include "objects.h"
 #include "level.h"
 #include "dave.h"
+#include "star.h"
 
 /* ------------------------------------------------------------------ EGA */
 static const uint32_t ega_pal[16] = {
@@ -108,7 +109,15 @@ static void draw_sprite_flash(int idx, int x, int y)
             /* Only the opaque pixels: inverting the whole w*h box also painted
                the transparent border and produced a solid "garbage" square. */
             if (s->mask && !s->mask[j * s->w + i]) continue;
-            fb[fy * DD2_W + fx] = (unsigned char)(s->px[j * s->w + i] ^ 15);
+            /* 0x61B7: the flash blitter sets GC3 = 0x10 (function select =
+               OR) and SEQ2 = 0x0F (all four planes), then writes `not al` of
+               the sprite's MASK plane.  The EGA mask is 0 = opaque / 1 =
+               transparent, so for the monster's pixels `not 0` = 0xFF in every
+               plane -> colour 15, i.e. the whole silhouette turns WHITE; the
+               transparent border keeps the background.  (The earlier port
+               inverted the colour instead, which is why the flash did not look
+               like the original.) */
+            fb[fy * DD2_W + fx] = 15;
         }
     }
 }
@@ -190,6 +199,9 @@ static const char *resolve_datadir(const char *want)
  * ---------------------------------------------------------------------- */
 #define BLANK_FRAMES 2             /* black frames between screens (boot_04/05) */
 static int blank_hold = BLANK_FRAMES;  /* screen blanking on the transition */
+/* 0x6720/0x6855-0x6B0E: the INTRO.DD2 logo flying in.  star_di is the
+   animation step (0 = not started, 1..300 = running, 301 = done/hold). */
+static int star_di, star_hold;
 static int map_hold;               /* how many frames to hold the map screen */
 static int map_drawn;              /* the map is already drawn in this pass */
 
@@ -278,7 +290,7 @@ static void Screen_KeyConfig(void)
     Video_PrintStr("\n1 north");                        /* 0x6F89..: DS:0x2A93 */
     Video_PrintStr("\n2 east\n3 south\n4 west\n5 button1\n6 button2");
     Video_PrintStr("\n\nModify which action: ");        /* 0x6FC2: DS:0x2ACB */
-    base_y  = dd2_text_y;                               /* [0x97D0] */
+    base_y  = dd2_text_top;                             /* [0x97D0] */
     cur_col = (dd2_text_x + 7) >> 3;                    /* 0x6FC8 */
     cur_row = dd2_text_y;                               /* 0x6FD7 */
 
@@ -331,19 +343,25 @@ static void Screen_JoyConfig(void)
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0, sx, sy, tile, k, i;
     uint32_t t0 = Plat_Ticks();
 
-    /* The original spins forever until a joystick button arrives; without a
-       pad (and in headless runs, which cannot deliver one) that would hang, so
-       the port leaves the screen in that case. */
-    if (!Plat_PadRaw(NULL, NULL)) {
-        if (getenv("DD2_TRACE_MENU")) LOGF("joycfg: no joystick -- leaving");
-        return;
-    }
     Video_FromIndexed(fb, DD2_W, DD2_H);   /* keep the level behind the panel */
     Video_CenterPanel(&A, 0x18, 0x10);                      /* 0x6BBD */
-    Video_PrintStrC("Joystick Configuration");              /* 0x6BCB: DS:0x2906 */
-    Video_PrintStrC("----------------------");              /* 0x6BD4: DS:0x291E */
+    Video_PrintStrC("Joystick Configuration\n");            /* 0x6BCB: DS:0x2906 */
+    Video_PrintStrC("----------------------\n");            /* 0x6BD4: DS:0x291E */
     sx = dd2_text_left + 0x60;
     sy = dd2_text_y;
+    /* The original draws the frame and the prompt (0x6BBB-0x6BF7) BEFORE it
+       spins for a button, so the screen must be visible even without a pad.
+       The port used to return before drawing anything, which is why F4 showed
+       nothing.  Without a pad the original waits forever (its only escape is
+       the [0x2B83] no-intro flag); here a key dismisses the prompt instead. */
+    if (!Plat_PadRaw(NULL, NULL)) {
+        if (getenv("DD2_TRACE_MENU")) LOGF("joycfg: no joystick -- prompt only");
+        dd2_text_x = dd2_text_left; dd2_text_y = sy;
+        Video_PrintStr("Hold the joystick in the\nUPPER LEFT corner and\npress a button:");
+        present_now();
+        Input_WaitKey();
+        return;
+    }
 
     for (k = 0; k < 2; k++) {
         /* 0x6BE6/0x6BEF: the two prompts (plain print).  The second one is
@@ -443,12 +461,10 @@ static int map_screen(int levelno)
         /* DS:0x54B + 9*(level-1): "LEVEL n" (the literal, because the
            generated string table only holds the menu strings). */
         snprintf(buf, sizeof buf, "LEVEL %d\n", levelno);
-        dd2_text_color = 0;      /* reference start_06: black strokes on the panel */
         Video_PrintStrC(buf);                           /* 0x132A */
     }
     map_lives = dd2_lives > 8 ? 8 : dd2_lives;          /* 0x133A..0x1346 */
     dd2_text_x = 0xF4; dd2_text_y = 0xA6;               /* 0x136B */
-    dd2_text_color = 8;      /* reference start_06: dark-grey digits */
     snprintf(buf, sizeof buf, "%u", dd2_score_lo + (dd2_score_hi * 65536u));
     Video_PrintStr(buf);                                /* 0x8911 */
     dd2_text_x = 0xF4; dd2_text_y = 0xB9;
@@ -459,7 +475,6 @@ static int map_screen(int levelno)
         dd2_text_y = 5;
         Video_Panel(&A, 0, 5, 10, 8);                   /* 0x7FC9(0,5,0xA,8) */
         dd2_text_y += 3;                                /* 0x147C -> 51 */
-        dd2_text_color = 0;
         Video_PrintStrC("LOADING\n");                   /* DS:0x593 */
     }
     return map_lives;
@@ -1466,16 +1481,22 @@ int main(int argc, char **argv)
             }
             if (hsc >= 0 && (hper <= 0 || (tick / hper) % 2 == 0)) keys[hsc] = true;
         }
-        /* Port convenience: 1..8 select a level, N = next. */
-        if (keys[0x02]) game_start_level(1);
-        else if (keys[0x03]) game_start_level(2);
-        else if (keys[0x04]) game_start_level(3);
-        else if (keys[0x05]) game_start_level(4);
-        else if (keys[0x06]) game_start_level(5);
-        else if (keys[0x07]) game_start_level(6);
-        else if (keys[0x08]) game_start_level(7);
-        else if (keys[0x09]) game_start_level(8);
-        else if (keys[0x31]) game_start_level(level % 8 + 1);
+        /* Port convenience for level testing: 1..8 select a level, N = next.
+           Gated behind DD2_LEVELKEYS: in the original these are ordinary
+           keys, and N is a valid answer in the Y/N prompts, so the ungated
+           shortcut made "N" in the Sound/Reset-Game prompt jump a level
+           (the check ran every iteration, before the menu dispatcher). */
+        if (getenv("DD2_LEVELKEYS")) {
+            if (keys[0x02]) game_start_level(1);
+            else if (keys[0x03]) game_start_level(2);
+            else if (keys[0x04]) game_start_level(3);
+            else if (keys[0x05]) game_start_level(4);
+            else if (keys[0x06]) game_start_level(5);
+            else if (keys[0x07]) game_start_level(6);
+            else if (keys[0x08]) game_start_level(7);
+            else if (keys[0x09]) game_start_level(8);
+            else if (keys[0x31]) game_start_level(level % 8 + 1);
+        }
         /* Menu debug: press a menu key for a few frames
            (DD2_MENU_TEST=TAB|F2|F5|F3|F4|ESC). */
         if (getenv("DD2_MENU_TEST") && tick > 70 && tick < 76) {
@@ -1500,7 +1521,32 @@ int main(int argc, char **argv)
             }
             if (mode == 1) {                   /* STARPIC + two lines (0x6720) */
                 if (attract_hold > 0) attract_hold--;
-                else if (blank_hold > 0) {
+                else if (star_di <= 300) {     /* 0x6855-0x6B0E: the logo flies in */
+                    if (star_di == 0) {
+                        /* 0x67F6: load INTRO.DD2 and span-encode it (0x6246).
+                           The logo is drawn OVER the STARPIC star field: the
+                           original's 0x9313 copy restores only the previous
+                           logo's rectangle from the second page. */
+                        star_di = 1;
+                        star_hold = 200;       /* 0x6B93: 0xC8 retraces holding it */
+                        Star_TablesInit();
+                        if (Star_LoadLogo(Video_DataDir()) == 0) Star_EncodeSpans();
+                        else star_di = 301;    /* no INTRO.DD2: skip the phase */
+                    } else {
+                        /* 0x6AB0 (inc di) + 0x6AC9 (di += [0x2C8D], the ticks
+                           elapsed during the 0x90A8 retrace wait): about
+                           1 + 2 = 3 steps per 70 Hz frame, so the fly-in takes
+                           ~100 frames, not 300. */
+                        star_di += 3;
+                    }
+                    if (star_di <= 300) {      /* 0xC7FA: the sweeping PC-speaker tone */
+                        int d = Star_ProjectToneDivisor(star_di);
+                        if (d) Plat_AudioTone(d);
+                    }
+                } else if (star_hold > 0) {    /* hold the finished logo (0x6B93) */
+                    if (star_hold == 200) Plat_AudioTone(0);   /* 0xC826: speaker off */
+                    star_hold--;
+                } else if (blank_hold > 0) {
                     /* In the original the screen GOES BLACK between STARPIC and the title:
                        in the reference recording boot_03 (STARPIC) -> boot_04/boot_05
                        (pure black) -> boot_06 (title).  The port
@@ -1555,6 +1601,10 @@ int main(int argc, char **argv)
                 }
             }
             Video_ToIndexed(fb, DD2_W, DD2_H);
+            /* 0x649C/0x6855: the flying INTRO logo, drawn over the black
+               background of its own phase. */
+            if (mode == 1 && star_di > 0 && blank_hold == BLANK_FRAMES)
+                Star_ProjectFrame(fb, DD2_W, DD2_H, star_di, 0, 0, DD2_W - 1, 179);
             Plat_Present(fb, DD2_W, DD2_H, cur_pal);
             if (record) {
                 char rp[600];

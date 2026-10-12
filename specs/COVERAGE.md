@@ -42,7 +42,7 @@ near-вызовов (`E8`) в кодовой части образа плюс т
 | `0x051f` | 60 | 0 | ESC/выход | `input.c` :: `Input_DirY` |
 | `0x055b` | 1160 | 0 | TAB статус | `input.c` :: `Input_DirY` |
 | `0x09e3` | 369 | 2 | загрузчик чанка спрайтов: 5 плоскостей с offset 2, размер = rec[+0]*rec[+2] | `dd2.c` :: `decode_sprite_chunk` |
-| `0x0b54` | 155 | 0 | fn записей: DAVEWALKE4 | `level.c` :: `Level_SpawnBonus` |
+| `0x0b54` | 155 | 0 | НЕ процедура: внутренний блок 0x09E3 (фантомная 140-я запись actor-info, перекрывает таблицу призов 0x1260) | -- |
 | `0x0bef` | 420 | 1 | строка: '91 Borland Intl.'; вызывает: центрированный текст, текст | `main.c` :: `Screen_SpriteTest` |
 | `0x0dad` | 1146 | 1 | загрузка уровня | `dd2.c` :: `dd2_load_level` |
 | `0x1227` | 633 | 1 | экран карты уровня: PROGPIC.DD2 + панели LEVEL n / LOADING | `main.c` :: `map_screen` |
@@ -64,7 +64,7 @@ near-вызовов (`E8`) в кодовой части образа плюс т
 | `0x21b0` | 981 | 2 | строка: 'G A M E O V E R'; вызывает: экран карты, ждать клавишу, пауза, кадр объектов | `main.c` :: `game_restart` |
 | `0x2585` | 1415 | 1 | дельта кадра | `objects.c` :: `Obj_Delta` |
 | `0x2b0c` | 289 | 24 | постановка команды рисования спрайта в очередь [0x905C] | `main.c` :: `dave_door` |
-| `0x2c2d` | 283 | 7 | область: сканы тайлов, экраны статуса | `objects.c` :: `Obj_Box` |
+| `0x2c2d` | 283 | 7 | очередь спрайта с битом 0x8000 (вспышка) -- двойник 0x2B0C | `main.c` :: `draw_sprite_flash` |
 | `0x2d48` | 191 | 1 | отрисовка спрайта: запись = sprite*4 + (screen_x mod 8)/4 | `main.c` :: `draw_sprite` |
 | `0x2e07` | 78 | 1 | кламп+применение перемещения | `objects.c` :: `Obj_ClampMove` |
 | `0x2e55` | 22 | 0 | react записей: DAVEOPEN, DAVEENTER1, DAVEENTER2, DAVEENTER3...; вызывает: очередь спрайта, проверка ухода с экрана | `objects.c` :: `Obj_DrawCullReact` |
@@ -74,7 +74,7 @@ near-вызовов (`E8`) в кодовой части образа плюс т
 | `0x2f11` | 229 | 0 | react записей: ZOMBWALKW1, ZOMBWALKW2, ZOMBWALKW3, ZOMBWALKW4...; вызывает: выталкивание из тайла, таблица «случайных» байт, SetState, bbox | `objects.c` :: `Obj_WalkAI` |
 | `0x2ff6` | 279 | 0 | react записей: SLIMEWTOP1, SLIMEWTOP2, SPIDERL1, SPIDERL2; вызывает: SetState, bbox, выталкивание из тайла, очередь спрайта (вспышка) | `main.c` :: `obj_react` |
 | `0x310d` | 24 | 0 | fn записей: ZATTACKW1, ZATTACKW2, ZATTACKW3, ZOMBDOWN1... | `objects.c` :: `Obj_FaceDave` |
-| `0x3125` | 991 | 1 | вызывает: Obj_Spawn | `dave.c` :: `Dave_Hitscan` |
+| `0x3125` | 991 | 1 | веер осколков (Obj_ChunkFan); вызывает: Obj_Spawn | `objects.c` :: `Obj_ChunkFan` |
 | `0x3504` | 26 | 0 | fn записей: BONUS100, BONUS200, BONUS400, BONUS800... | `objects.c` :: `Obj_BonusTimer` |
 | `0x351e` | 27 | 0 | fn записей: BONUS1UP | `objects.c` :: `Obj_BonusTimer` |
 | `0x3539` | 63 | 2 | приз/бонус | `level.c` :: `Level_SpawnBonus` |
@@ -143,7 +143,7 @@ near-вызовов (`E8`) в кодовой части образа плюс т
 | `0x53ff` | 4055 | 2 | спавн из плоскости тегов | `level.c` :: `Level_SpawnTags` |
 | `0x63d6` | 842 | 1 | инициализация звёздного движка | `video.c` :: `Video_AttractBegin` |
 | `0x6720` | 1170 | 1 | главный цикл: заставка+игра | `main.c` :: `main` |
-| `0x6bb2` | 579 | 1 | строка: 'press a button:'; вызывает: рамка окна, центрированный текст, текст, тайл 8x8 | `main.c` :: `Screen_KeyConfig` |
+| `0x6bb2` | 579 | 1 | строка: 'press a button:'; вызывает: рамка окна, центрированный текст, текст, тайл 8x8 | `main.c` :: `Screen_JoyConfig` |
 | `0x6df5` | 147 | 4 | строка: 'ESC'; вызывает: текст | `input.c` :: `Input_KeyName` |
 | `0x6e88` | 212 | 1 | строка: 'F11'; вызывает: текст | `input.c` :: `Input_KeyName` |
 | `0x6f5c` | 585 | 1 | конфиг клавиш | `input.c` :: `?` |
@@ -151,14 +151,14 @@ near-вызовов (`E8`) в кодовой части образа плюс т
 | `0x72e8` | 158 | 4 | детект джойстика | `platform.c` :: `plat_open_pad` |
 | `0x7386` | 40 | 1 | строка: 'CTRL : Drop down' | `main.c` :: `main` |
 | `0x73ae` | 413 | 6 | строка: 'CTRL : Drop down' | `main.c` :: `main` |
-| `0x754b` | 166 | 3 | опрос ввода | `dave.c` :: `Dave_Frame` |
+| `0x754b` | 166 | 3 | опрос ввода: выбор устройства по [0x97D6] (0=0x71A5 клавиатура, 2/3=0x73AE джойстик) | `main.c` :: `input_apply_pad` |
 | `0x75f1` | 70 | 10 | вызывает: ждать клавишу | `input.c` :: `Input_WaitKey` |
 | `0x7637` | 453 | 4 | загрузка файла | `dd2.c` :: `dd2_load_any` |
-| `0x77fc` | 102 | 2 | загрузка PIC (ветка A) | `dd2.c` :: `dd2_rlew_expand` |
-| `0x7862` | 214 | 3 | загрузка PIC (ветка B) | `main.c` :: `present_now` |
+| `0x77fc` | 102 | 2 | загрузка PIC (ветка A, RLE 0xFE без 'PIC') | `dd2.c` :: `dd2_rle_expand` |
+| `0x7862` | 214 | 3 | загрузка PIC (ветка B): выбор декодера и показ | `video.c` :: `Video_ShowPicAt` |
 | `0x7938` | 16 | 5 | пауза перед показом | `video.c` :: `Video_Prep` |
 | `0x7948` | 531 | 1 | HUFF | `dd2.c` :: `dd2_huff_expand` |
-| `0x7b5b` | 153 | 1 | RLEW | `dd2.c` :: `dd2_rlew_expand` |
+| `0x7b5b` | 153 | 1 | RLEW (реальный вход 0x7B4D; 0x7B5B -- середина инструкции) | `dd2.c` :: `dd2_rlew_expand` |
 | `0x7bf4` | 131 | 1 | RLE FE/count/value | `dd2.c` :: `dd2_rle_expand` |
 | `0x7c77` | 155 | 3 | показ PIC | `video.c` :: `Video_ShowPicAt` |
 | `0x7d12` | 89 | 1 | область: видео: PIC, плоскости, шрифт, RLE/HUFF | `video.c` :: `Video_Clear` |
@@ -167,7 +167,7 @@ near-вызовов (`E8`) в кодовой части образа плюс т
 | `0x7fb2` | 23 | 4 | область: видео: PIC, плоскости, шрифт, RLE/HUFF | `video.c` :: `Video_SetWidth` |
 | `0x7fc9` | 358 | 5 | строка: '1991 Borland Intl.'; вызывает: тайл 8x8 | `main.c` :: `present_now` |
 | `0x812f` | 127 | 8 | вызывает: рамка панели | `main.c` :: `port_sprite_bbox` |
-| `0x81ae` | 92 | 16 | рамка окна | `main.c` :: `Screen_Status` |
+| `0x81ae` | 92 | 16 | рамка окна + анимация роста 0x820A/0x823C (в порте только конечная панель) | `video.c` :: `Video_CenterPanel` |
 | `0x820a` | 50 | 2 | область: видео: PIC, плоскости, шрифт, RLE/HUFF | `video.c` :: `Video_FrameB` |
 | `0x823c` | 1136 | 2 | область: видео: PIC, плоскости, шрифт, RLE/HUFF | `video.c` :: `Video_FrameC` |
 | `0x86ac` | 192 | 1 | вызывает: символ | `input.c` :: `Input_LineEdit` |
@@ -175,16 +175,16 @@ near-вызовов (`E8`) в кодовой части образа плюс т
 | `0x8819` | 56 | 1 | ширина строки | `video.c` :: `Video_StrWidth` |
 | `0x8851` | 1055 | 38 | строка по центру | `video.c` :: `Video_PrintStrC` |
 | `0x8c70` | 66 | 1 | тик таймера | `video.c` :: `Video_TickDelay` |
-| `0x8cb2` | 15 | 24 | область: видео: PIC, плоскости, шрифт, RLE/HUFF | `dave.c` :: `SetState` |
+| `0x8cb2` | 15 | 24 | очередь звука (приоритет + запуск) | `sound.c` :: `Sound_SFX` |
 | `0x8cc1` | 494 | 0 | Sound_Effect | `sound.c` :: `Sound_Effect` |
-| `0x8eaf` | 455 | 6 | таблица «случайных» байт | `level.c` :: `RandByte` |
+| `0x8eaf` | 20 | 6 | таблица «случайных» байт | `level.c` :: `RandByte` |
 | `0x9076` | 50 | 3 | выбор плоскости EGA | `video.c` :: `Video_SetPlane` |
 | `0x90a8` | 178 | 5 | start address + pel pan | `video.c` :: `Video_SetScroll` |
 | `0x915a` | 354 | 26 | работа с портами EGA | `video.c` :: `Video_Tile8` |
 | `0x92bc` | 87 | 4 | заливка | `video.c` :: `Video_Fill` |
 | `0x9313` | 52 | 6 | построчная копия | `video.c` :: `Video_RowCopy` |
 | `0x9347` | 381 | 9 | вывод символа | `video.c` :: `Video_PrintChar` |
-| `0x94c4` | 2780 | 1 | блиттер спрайта через xlatb, страйд приёмника [0x3004]-1 | `main.c` :: `draw_sprite` |
+| `0x94c4` | 2780 | 1 | самоизменяющийся xlatb-блиттер прогонов логотипа INTRO (не портирован); `draw_sprite` моделирует 0x98A1/A0BB | -- |
 | `0xffff` | 769 | 0 | react записей: ? | `sound.c` :: `?` |
 
 ## Портировано частично (в C стоит TODO)

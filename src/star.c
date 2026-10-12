@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "dd2.h"
 #include "star.h"
 
@@ -193,4 +194,123 @@ void Star_DrawSpans(unsigned char *dst, int dw, int dh)
             }
         }
     }
+}
+
+/* ------------------------------------------------------------------ 0x649C */
+/* The span list starts with a two-word header (255, 64) -- the logo's size in
+   the scale tables.  For every run the renderer computes
+       scaled_start = (scale * start) >> 8      (table DS:0x91D8 + scale*256)
+       scaled_len   = (scale * len)   >> 8
+   and, for the destination column x,
+       src_col      = ((x - left) << 8) / scale  (table DS:0x908A + scale*256)
+   then blits `scaled_len` colour bytes of that source column sequentially
+   (0x94C4 reads one colour byte per destination pixel).  All of it is clipped
+   to the window [0x907C..0x9084] x [0x907E..0x9086]. */
+void Star_DrawSpansScaled(unsigned char *dst, int dw, int dh,
+                          int cx, int cy, int scale,
+                          int win_l, int win_t, int win_r, int win_b)
+{
+    int sw, sh, left, top, right, bottom, x;
+    if (!dst || dw <= 0 || dh <= 0 || scale <= 0 || scale > 256) return;
+    if (win_l < 0) win_l = 0;
+    if (win_t < 0) win_t = 0;
+    if (win_r > dw - 1) win_r = dw - 1;
+    if (win_b > dh - 1) win_b = dh - 1;
+
+    sw = (scale * (STAR_LOGO_W - 1)) >> 8;        /* table1[255] */
+    sh = (scale * STAR_LOGO_H) >> 8;              /* table1[64]  */
+    left = cx - sw / 2;      right  = left + sw;
+    top  = cy - sh / 2;      bottom = top + sh;
+    if (right < win_l || left > win_r || bottom < win_t || top > win_b) return;
+
+    for (x = left; x < right; x++) {
+        int src, i;
+        const StarCol *sc;
+        if (x < win_l || x > win_r) continue;
+        src = ((x - left) << 8) / scale;          /* table2[x-left] */
+        if (src < 0) continue;
+        if (src >= STAR_LOGO_W) break;
+        sc = &dd2_star_spans[src];
+        for (i = 0; i < sc->nruns && i < STAR_MAXRUNS; i++) {
+            const StarRun *r = &sc->run[i];
+            int y, y1, k;
+            if (r->len <= 0) break;
+            y  = top + ((scale * r->y) >> 8);     /* table1[start] */
+            y1 = y + ((scale * r->len) >> 8) - 1; /* table1[len]   */
+            k = 0;
+            if (y < win_t) { k += win_t - y; y = win_t; }
+            if (y1 > win_b) y1 = win_b;
+            for (; y <= y1 && k < r->len; y++, k++)
+                dst[y * dw + x] = r->col[k];
+        }
+    }
+}
+
+/* ---------------------------------------------------------- 0x6855-0x6B0E */
+/* Per-frame constants (0x6855-0x68F8).  0xA86E = fcos, 0xAFCE = fsin (both are
+   the Borland x87 wrappers; see re/audit/emu87.md):
+       R  = 256 * (cos(0.6*pi)*1000 + 1000)
+       A0 = 80 - R/1000*32/256
+       A  = A0 / (R/256000)
+       D  = A - 1000
+       F  = -(sin(0.6*pi)*1000/2)
+   Per step di (0x6912-0x69D3):
+       a  = (di/300) * 0.6*pi ;  S = sin(a) ;  C = cos(a)
+       X  = F + S*500 ;  Y = D + S*1000 ;  Z = C*1000 + 1000
+       w  = R / Z
+       px = (int)(X*w/256) + 0xA0
+       py = 0x64 - (int)(Y*w/256)
+       scale = (int)w            (passed to 0x649C)
+   0x90A8 (CRTC start/pel-pan) waits for the retrace, so one `di` is one frame;
+   after di = 300 the driver holds the final picture for 0xC8 retraces. */
+void Star_ProjectFrame(unsigned char *dst, int dw, int dh, int di,
+                       int win_l, int win_t, int win_r, int win_b)
+{
+    const double PI = 3.14159265358979323846;
+    const double base = 0.6 * PI;
+    double R, A0, A, D, F, a, S, C, X, Y, Z, w;
+    int px, py, sc;
+
+    if (!dst || dw <= 0 || dh <= 0) return;
+    if (di < 1)   di = 1;
+    if (di > 300) di = 300;
+
+    R  = 256.0 * (cos(base) * 1000.0 + 1000.0);
+    A0 = 80.0 - (R / 1000.0 * 32.0 / 256.0);
+    A  = A0 / (R / 256000.0);
+    D  = A - 1000.0;
+    F  = -(sin(base) * 1000.0 / 2.0);
+
+    a = ((double)di / 300.0) * base;
+    S = sin(a);
+    C = cos(a);
+    X = F + S * 500.0;
+    Y = D + S * 1000.0;
+    Z = C * 1000.0 + 1000.0;
+    w = (Z != 0.0) ? (R / Z) : 0.0;
+
+    px = (int)(X * w / 256.0) + 0xA0;          /* 0x69B8 */
+    py = 0x64 - (int)(Y * w / 256.0);          /* 0x69CE */
+    sc = (int)w;                               /* 0x6A56: the 0x649C scale */
+    if (sc < 1) return;
+
+    Star_DrawSpansScaled(dst, dw, dh, px, py, sc, win_l, win_t, win_r, win_b);
+}
+
+/* 0xC7FA(v): ax = 0x1234DD (1193181 Hz, the PIT input), dx = 0x12; if bx <= 18
+   the routine returns without touching the speaker, otherwise it programs
+   timer 2 with 1193181/bx.  The caller (0x69DD) passes v = (int)(S*1500). */
+int Star_ProjectToneDivisor(int di)
+{
+    const double PI = 3.14159265358979323846;
+    double a, S;
+    int v, d;
+    if (di < 1)   di = 1;
+    if (di > 300) di = 300;
+    a = ((double)di / 300.0) * 0.6 * PI;
+    S = sin(a);
+    v = (int)(S * 1500.0);            /* 0x69DD-0x69E5 */
+    if (v <= 0x12) return 0;          /* 0xC806: no speaker update */
+    d = 1193181 / v;                  /* 0xC80A: div bx */
+    return d > 0 ? d : 0;
 }

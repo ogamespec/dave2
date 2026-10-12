@@ -38,4 +38,30 @@ unsigned Star_SpansPixel(int x, int y);              /* decode back (test) */
    next step; this is the blit primitive it will call. */
 void Star_DrawSpans(unsigned char *dst, int dw, int dh);
 
+/* 0x649C -- the same walk, but scaled and centred at (cx,cy).
+   `scale` is the argument of 0x649C: the size tables of 0x63D6 give
+   `(scale * v) >> 8` for a source coordinate v, and a destination pixel x maps
+   back to the source column `((x - left) << 8) / scale`.  scale = 256 is 1:1;
+   only scale <= 256 is used.  The logo's header in the span list is
+   (STAR_LOGO_W-1, STAR_LOGO_H), so its scaled size is
+   ((scale*255)>>8) x ((scale*64)>>8).  Runs are drawn from their first
+   `scaled_len` colour bytes (the original's 0x94C4 blitter reads the run
+   colours sequentially).  Clipped to [win_l..win_r] x [win_t..win_b]. */
+void Star_DrawSpansScaled(unsigned char *dst, int dw, int dh,
+                          int cx, int cy, int scale,
+                          int win_l, int win_t, int win_r, int win_b);
+
+/* 0x6855-0x6B0E -- one frame of the flying-logo projection.  `di` is the
+   animation step 1..300; the frame draws the INTRO logo centred at the
+   projected (x,y) with the projected scale.  Returns without drawing when the
+   logo is entirely outside the window. */
+void Star_ProjectFrame(unsigned char *dst, int dw, int dh, int di,
+                       int win_l, int win_t, int win_r, int win_b);
+
+/* 0xC7FA: the intro's PC-speaker tone.  The original calls it with the
+   frequency (int)(S*1500) Hz and programs the PIT with 1193181/freq; a
+   frequency <= 0x12 is ignored (the previous tone keeps playing).  Returns the
+   PIT divisor, or 0 when the original would not touch the speaker. */
+int Star_ProjectToneDivisor(int di);
+
 #endif
