@@ -1,0 +1,130 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <ProjectGuid>{4E2D2A17-9C1B-4A55-9F3E-2B7C1A6D5E01}</ProjectGuid>
+    <RootNamespace>dd2</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <!-- Pick the newest available toolset: v145 = VS2026, v143 = VS2022. -->
+  <PropertyGroup>
+    <PlatformToolset Condition="Exists('$(VCTargetsPath)\Platforms\$(Platform)\PlatformToolsets\v145')">v145</PlatformToolset>
+    <PlatformToolset Condition="'$(PlatformToolset)'==''">v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            Label="LocalAppDataPlatform" />
+  </ImportGroup>
+
+  <!-- SDL3 from the official SDL3-devel-<ver>-VC.zip, unpacked into ..\third_party\SDL3 -->
+  <PropertyGroup>
+    <SDL3Dir>$(MSBuildThisFileDirectory)..\third_party\SDL3</SDL3Dir>
+    <!-- SDL3 ships both architectures in the same VC zip: lib\x64 and lib\x86. -->
+    <SDL3Arch Condition="'$(Platform)'=='Win32'">x86</SDL3Arch>
+    <SDL3Arch Condition="'$(SDL3Arch)'==''">x64</SDL3Arch>
+    <!-- x64 keeps the historical layout; Win32 goes to a subdirectory so the
+         two architectures do not overwrite each other. -->
+    <OutDir Condition="'$(Platform)'=='Win32'">$(MSBuildThisFileDirectory)..\bin\$(Configuration)\x86\</OutDir>
+    <OutDir Condition="'$(Platform)'!='Win32'">$(MSBuildThisFileDirectory)..\bin\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\obj\$(Configuration)\$(Platform)\</IntDir>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\src;$(SDL3Dir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalLibraryDirectories>$(SDL3Dir)\lib\$(SDL3Arch);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>SDL3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <!-- put SDL3.dll next to the executable -->
+      <Command>if exist "$(SDL3Dir)\lib\$(SDL3Arch)\SDL3.dll" copy /Y "$(SDL3Dir)\lib\$(SDL3Arch)\SDL3.dll" "$(OutDir)" &gt;nul</Command>
+      <Message>Copying SDL3.dll</Message>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="..\src\main.c" />
+    <ClCompile Include="..\src\platform.c" />
+    <ClCompile Include="..\src\dd2.c" />
+    <ClCompile Include="..\src\video.c" />
+    <ClCompile Include="..\src\input.c" />
+    <ClCompile Include="..\src\sound.c" />
+    <ClCompile Include="..\src\objects.c" />
+    <ClCompile Include="..\src\dave.c" />
+    <ClCompile Include="..\src\level.c" />
+    <ClCompile Include="..\src\star.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\src\dd2.h" />
+    <ClInclude Include="..\src\video.h" />
+    <ClInclude Include="..\src\input.h" />
+    <ClInclude Include="..\src\sound.h" />
+    <ClInclude Include="..\src\objects.h" />
+    <ClInclude Include="..\src\dave.h" />
+    <ClInclude Include="..\src\level.h" />
+    <ClInclude Include="..\src\star.h" />
+    <ClInclude Include="..\src\dd2_actorinfo.h" />
+    <ClInclude Include="..\src\dd2_sprtable.h" />
+    <ClInclude Include="..\src\dd2_tileattr.h" />
+    <ClInclude Include="..\src\dd2_tables.h" />
+    <ClInclude Include="..\src\dd2_font.h" />
+    <ClInclude Include="..\src\dd2_sounds.h" />
+    <ClInclude Include="..\src\dd2_snddata.h" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

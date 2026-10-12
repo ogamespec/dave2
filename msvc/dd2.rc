@@ -1,0 +1,4 @@
+/* Windows resource script: the application icon.
+   Kept in sync with src/dd2_icon.h (runtime SDL window icon) -- both are
+   generated from the game's own sprite 0x43 by tools/mkicon.c + mkicon.py. */
+1 ICON "../icon/dd2.ico"

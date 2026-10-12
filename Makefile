@@ -1,0 +1,67 @@
+# Dangerous Dave 2 -- SDL3 port
+SDL3_PREFIX ?= /mnt/c/Games/DD2/re/third_party/sdl3-install
+CC      ?= gcc
+CFLAGS  ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
+CFLAGS  += -I$(SDL3_PREFIX)/include
+LDFLAGS += -L$(SDL3_PREFIX)/lib
+LDLIBS  += -lSDL3 -lm -lpthread -ldl
+
+SRC = src/main.c src/platform.c src/dd2.c src/video.c src/input.c src/sound.c src/objects.c src/dave.c src/level.c src/star.c
+OBJ = $(SRC:.c=.o)
+BIN = dd2
+
+all: $(BIN)
+
+$(BIN): $(OBJ)
+	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDFLAGS) $(LDLIBS)
+
+%.o: %.c src/dd2.h src/video.h src/input.h src/dd2_actorinfo.h src/dd2_sprtable.h src/dd2_tileattr.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# --- icon ------------------------------------------------------------------
+# Regenerate the icon assets from the game's marker sprite (sprite 0x43).
+icon: tools/mkicon.c
+	$(CC) $(CFLAGS) -o /tmp/dd2_mkicon tools/mkicon.c src/dd2.c src/level.c \
+	    src/objects.c src/dave.c src/platform.c src/video.c src/input.c \
+	    src/sound.c $(LDFLAGS) $(LDLIBS)
+	SDL_VIDEODRIVER=dummy /tmp/dd2_mkicon 0x43 icon/dd2
+	python3 tools/mkicon.py
+
+# Windows resource object (mingw-w64): embeds icon/dd2.ico into dd2.exe.
+# Link it together with the objects:  mingw32-make WINDRES=windres ...
+dd2_res.o: dd2.rc icon/dd2.ico
+	$(WINDRES) dd2.rc -O coff -o $@
+
+clean:
+	rm -f $(OBJ) $(BIN) sweep dd2_res.o
+
+# Headless smoke test: renders frames without a display and dumps a PNG-less
+# BMP using the SDL "dummy" video driver.
+test: $(BIN)
+	SDL_VIDEODRIVER=dummy ./$(BIN) /mnt/c/Games/DD2
+
+# Star-engine stage test (tables 0x63D6 + INTRO.DD2 logo); see tests/startest.c.
+startest: tests/startest.c src/star.c src/star.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/startest.c src/star.c src/dd2.c $(LDFLAGS) $(LDLIBS)
+
+# All automated checks: the self-tests, the cross-level sweep and the
+# level-flow test (see tests/).
+check: sweep flow startest
+	./sweep
+	./flow
+	./startest
+
+# Cross-level collision sweep (all 8 levels, scripted input).  Includes main.c
+# so it drives the real dispatchers; fails if Dave leaves the map anywhere.
+sweep: tests/sweep.c src/main.c
+	$(CC) $(CFLAGS) -o $@ tests/sweep.c src/platform.c src/dd2.c src/video.c \
+	    src/input.c src/sound.c src/objects.c src/dave.c src/level.c src/star.c \
+	    $(LDFLAGS) $(LDLIBS)
+
+# End-to-end level-flow test: death -> game over -> restart (see tests/flow.c).
+flow: tests/flow.c src/main.c
+	$(CC) $(CFLAGS) -o $@ tests/flow.c src/platform.c src/dd2.c src/video.c \
+	    src/input.c src/sound.c src/objects.c src/dave.c src/level.c src/star.c \
+	    $(LDFLAGS) $(LDLIBS)
+
+.PHONY: all clean test sweep flow startest icon
