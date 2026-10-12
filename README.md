@@ -39,7 +39,7 @@ make                                    # looks for SDL3 in re/third_party/sdl3-
 make SDL3_PREFIX=/path/to/sdl3-install  # if SDL3 lives somewhere else
 ```
 
-### Windows (MSVC 2022+)
+### Windows
 
 ```bat
 msvc\build.bat [Release|Debug] [x64|x86]
@@ -74,30 +74,3 @@ and `../re/ref/orig`.
 
 An SDL gamepad is picked up automatically; the input mode and buttons are
 configured through F4.
-
-## Checks
-
-```sh
-make check    # sweep   -- walks all 8 levels with scripted input
-              # flow    -- lives, deaths, game over, restarts, score
-              # startest -- star-engine tables, spans and logo drawing (exact)
-```
-
-## Layout
-
-```
-src/      game logic and platform layer (original addresses in the comments)
-tests/    automated tests: sweep, flow, startest, hitprobe
-msvc/     Visual Studio project and build.bat
-specs/    architecture, port plan, procedure coverage map
-tools/    icon and UI-bank generators
-re/       reverse-engineering workspace: the disassembler
-          re/tools/dd2dis_cli.py, the reference image DAVE2_IMAGE.bin, DOSBox-X
-          comparisons and the audit notes (not part of the repository, see
-          .gitignore)
-```
-
-## License
-
-The port's code is CC0 1.0 (see `LICENSE`). The original game data is not
-covered by it and is not distributed here.
