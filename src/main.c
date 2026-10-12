@@ -202,6 +202,7 @@ static int blank_hold = BLANK_FRAMES;  /* screen blanking on the transition */
 /* 0x6720/0x6855-0x6B0E: the INTRO.DD2 logo flying in.  star_di is the
    animation step (0 = not started, 1..300 = running, 301 = done/hold). */
 static int star_di, star_hold;
+static int star_tone;                  /* divisor of the frame's 0xC7FA tone */
 static int map_hold;               /* how many frames to hold the map screen */
 static int map_drawn;              /* the map is already drawn in this pass */
 
@@ -1452,7 +1453,10 @@ int main(int argc, char **argv)
        (0x6720), then the title-screen loop with scrolling (0x14F8/0x14A0). */
     Video_Clear();
     Video_AttractBegin();
-    attract_hold = 90;             /* ~1.5 s, as in the original (boot_03..boot_06) */
+    attract_hold = 15;             /* ~0.25 s: reference AVI shows STARPIC for
+                                      only ~0.1-0.35 s before the 0x6855 logo
+                                      animation starts (logo off-screen for the
+                                      first ~0.65 s, so STARPIC alone ~0.8 s) */
     mode = 1;                      /* 1 = STARPIC, 2 = title loop, 0 = game */
     /* for headless level capture we do not run the splash */
     if (!attract && (shot || readback || record)) { attract_hold = 0; mode = 2; }
@@ -1539,12 +1543,13 @@ int main(int argc, char **argv)
                            ~100 frames, not 300. */
                         star_di += 3;
                     }
-                    if (star_di <= 300) {      /* 0xC7FA: the sweeping PC-speaker tone */
-                        int d = Star_ProjectToneDivisor(star_di);
-                        if (d) Plat_AudioTone(d);
-                    }
+                    /* 0xC7FA: the sweeping PC-speaker tone.  It is applied to
+                       the platform just before the frame delay below, gated at
+                       70 Hz there (the ISR cut), so frame jitter cannot smear
+                       the "brrr" into a continuous note. */
+                    star_tone = (star_di <= 300) ? Star_ProjectToneDivisor(star_di) : 0;
                 } else if (star_hold > 0) {    /* hold the finished logo (0x6B93) */
-                    if (star_hold == 200) Plat_AudioTone(0);   /* 0xC826: speaker off */
+                    if (star_hold == 200) star_tone = 0;   /* 0xC826: speaker off */
                     star_hold--;
                 } else if (blank_hold > 0) {
                     /* In the original the screen GOES BLACK between STARPIC and the title:
@@ -1613,7 +1618,19 @@ int main(int argc, char **argv)
                 write_bmp(rp, rgba, DD2_W, DD2_H);
             }
             if (shot && (int)tick >= 1 && frames <= 1) { fb_to_rgba(); write_bmp(shot, rgba, DD2_W, DD2_H); running = 0; }
-            Plat_Delay(16);
+            /* 0xC7FA programs the tone once per frame; the 140 Hz sound ISR
+               silences the speaker at 0x8DCA on its next tick (0..7 ms), which
+               turns the sweep into a ~70 Hz "brrr".  The platform applies that
+               gate sample-accurately, so it no longer depends on frame timing. */
+            if (mode == 1) {
+                Plat_AudioToneGated(star_tone);
+                /* 0x90A8 waits for the CRTC retrace: the intro runs at 70 Hz,
+                   and the fly-in (100 steps) takes ~1.4 s.  Render costs ~6 ms,
+                   so sleep 8 ms to land on ~14 ms per frame. */
+                Plat_Delay(8);
+            } else {
+                Plat_Delay(16);
+            }
             tick++;
             if (frames && (int)tick >= frames) running = 0;
             continue;

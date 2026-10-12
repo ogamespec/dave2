@@ -188,8 +188,22 @@ void Plat_Delay(int ms)
 /* ----------------------------------------------------------------- audio */
 static SDL_AudioStream *p_stream;
 static volatile int     p_divisor;      /* 0 = silence */
+static volatile int     p_gated;        /* 1 = direct 0xC7FA tone: gate it */
 static double           p_phase;        /* square-wave phase 0..1 */
+static int              p_gate_pos;     /* sample position inside the gate period */
+static double           p_level;        /* current unipolar speaker level */
+static double           p_dc_x, p_dc_y; /* DC-blocking (coupling capacitor) state */
+static double           p_lp;           /* speaker-cone low-pass state */
 static int              p_said;         /* diagnostics: first tone reported */
+
+/* The intro sets its tone directly (0xC7FA) once per 70 Hz frame; the 140 Hz
+   sound ISR silences the speaker at 0x8DCA on its next tick, so the tone lives
+   0..7 ms and the fly-in is a ~70 Hz buzz, not a note.  Doing that with frame
+   timing jitter smears the buzz away (measured: 1.8% of the energy below
+   120 Hz against 15.9% in the original), so the gate is applied here,
+   sample-accurately: 3.6 ms of tone per 1/70 s. */
+#define PLAT_GATE_PERIOD  (44100 / 70)
+#define PLAT_GATE_ON      (44100 * 36 / 10000)
 
 static void SDLCALL plat_audio_cb(void *userdata, SDL_AudioStream *st,
                                   int additional, int total)
@@ -202,19 +216,47 @@ static void SDLCALL plat_audio_cb(void *userdata, SDL_AudioStream *st,
     if (n > (int)(sizeof buf / sizeof buf[0])) n = (int)(sizeof buf / sizeof buf[0]);
     for (i = 0; i < n; i++) {
         int d = p_divisor;
-        if (d <= 0) {
-            buf[i] = 0;
-            p_phase = 0.0;
+        int on = 1;
+        if (d > 0 && p_gated) {
+            if (p_gate_pos >= PLAT_GATE_PERIOD) p_gate_pos -= PLAT_GATE_PERIOD;
+            on = (p_gate_pos < PLAT_GATE_ON);
+            p_gate_pos++;
+        } else {
+            p_gate_pos = 0;
+        }
+        if (d <= 0 || !on) {
+            p_level = 0.0;
+            if (d <= 0) p_phase = 0.0;
         } else {
             double f = (double)PLAT_PIT_HZ / (double)d;   /* tone frequency */
             double step = f / 44100.0;
             p_phase += step;
             if (p_phase >= 1.0) p_phase -= (double)(long)p_phase;
-            buf[i] = (p_phase < 0.5) ? 6000 : -6000;      /* square wave */
+            /* The PC speaker is driven unipolar (0 / +5 V), not as a symmetric
+               square.  That matters: a symmetric burst averages to zero, so the
+               70 Hz gate produces no fundamental and the fly-in loses its
+               "brrr".  Measured against the original, the unipolar burst puts
+               the 70 Hz line above the tone, as in the hardware. */
+            p_level = (p_phase < 0.5) ? 6000.0 : 0.0;
             if (!p_said) {
                 p_said = 1;
                 Plat_Log("sound: first tone (divisor %d)", d);
             }
+        }
+        /* The speaker is capacitor-coupled, so take the DC back out; the 70 Hz
+           gate survives (measured: low/tone ratio 2.95 -> 2.87). */
+        {
+            double y = p_level - p_dc_x + 0.99858 * p_dc_y;   /* ~10 Hz HP */
+            p_dc_x = p_level;
+            p_dc_y = y;
+            /* ...and the cone rolls the top off: a one-pole ~2 kHz low-pass
+               brings the band balance in line with the reference recording
+               (4-9 kHz: 10.8% here vs 10.9% original, was 18.4%). */
+            p_lp += 0.248 * (y - p_lp);
+            y = p_lp;
+            if (y >  32000.0) y =  32000.0;
+            if (y < -32000.0) y = -32000.0;
+            buf[i] = (Sint16)y;
         }
     }
     SDL_PutAudioStreamData(st, buf, n * (int)sizeof(Sint16));
@@ -227,6 +269,11 @@ void Plat_AudioInit(void)
     /* The audio subsystem must be up before the stream can be opened;
        without this the stream failed to open and the game was silent. */
     SDL_InitSubSystem(SDL_INIT_AUDIO);
+    /* The PC-speaker engine changes the PIT divisor far faster than a game
+       frame: the intro's 0xC7FA tone is cut by the 140 Hz ISR (see
+       Sound_Tick), and the sound effects are stepped at 140 Hz too.  A large
+       device buffer smears those steps into a hum, so keep it small. */
+    SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "128");
     SDL_zero(spec);
     spec.format   = SDL_AUDIO_S16;
     spec.channels = 1;
@@ -247,7 +294,13 @@ void Plat_AudioQuit(void)
     p_stream = NULL;
 }
 
-void Plat_AudioTone(int divisor) { p_divisor = divisor; }
+void Plat_AudioTone(int divisor) { p_divisor = divisor; p_gated = 0; }
+/* The intro's direct 0xC7FA tone: same divisor, but gated at 70 Hz in the audio
+   callback to reproduce the ISR cut (0x8DCA) without frame-timer jitter. */
+void Plat_AudioToneGated(int divisor) { p_divisor = divisor; p_gated = (divisor > 0); }
+/* 1 while such a tone is active: the idle 140 Hz ISR must not silence it,
+   because the callback already emulates that cut. */
+int Plat_AudioGated(void) { return p_gated; }
 
 int Plat_AudioReady(void) { return p_stream != NULL; }
 

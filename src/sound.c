@@ -69,7 +69,18 @@ void Sound_EffectByName(const char *name)
 void Sound_Tick(void)
 {
     uint16_t v;
-    if (!cur || cur >= cur_end) { if (cur) Sound_Stop(); return; }
+    /* 0x8DA2: [0x2C9E] == 0 -> 0x8DCA: the ISR turns the speaker OFF whenever
+       no sequence is queued.  This matters for the intro, which sets a tone
+       directly through 0xC7FA once per frame: the 140 Hz ISR cuts it every
+       tick, so the fly-in sounds like a 70 Hz "brrr" instead of a steady note
+       (without this the port played one continuous tone). */
+    if (!cur || cur >= cur_end) {
+        if (cur) Sound_Stop();
+        /* Do not touch a directly-programmed intro tone (0xC7FA): the platform
+           already emulates the ISR cut with a sample-accurate 70 Hz gate. */
+        else if (!Plat_AudioGated()) Plat_AudioTone(0);
+        return;
+    }
     v = *cur++;                                  /* 0x8DAF */
     if (v == 0xFFFF) { Sound_Stop(); return; }   /* 0x8DBF: end of sequence */
     divisor = v;                                 /* 0 = pause (0x8DCA) */

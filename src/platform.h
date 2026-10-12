@@ -41,6 +41,10 @@ void Plat_AudioQuit(void);
 /* Current square-wave divisor: 0 = silence, otherwise PIT_HZ / divisor Hz.
    The audio callback reads this value; the game layer only sets it. */
 void Plat_AudioTone(int divisor);
+/* Same, but the tone is chopped at 70 Hz by the audio callback, emulating the
+   140 Hz sound ISR (0x8DA2 -> 0x8DCA) cutting a directly-programmed tone. */
+void Plat_AudioToneGated(int divisor);
+int  Plat_AudioGated(void);                      /* 1 while a gated tone plays */
 int  Plat_AudioReady(void);                      /* 1 if a stream is open */
 
 /* ---------------------------------------------------------------- input */
