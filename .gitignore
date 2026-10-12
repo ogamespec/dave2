@@ -6,5 +6,6 @@ dd2
 startest
 sweep
 flow
+joycfg
 /src/*.o
 *.log

@@ -50,10 +50,11 @@ startest: tests/startest.c src/star.c src/star.h
 
 # All automated checks: the self-tests, the cross-level sweep and the
 # level-flow test (see tests/).
-check: sweep flow startest
+check: sweep flow startest joycfg
 	./sweep
 	./flow
 	./startest
+	./joycfg
 
 # Cross-level collision sweep (all 8 levels, scripted input).  Includes main.c
 # so it drives the real dispatchers; fails if Dave leaves the map anywhere.
@@ -62,10 +63,16 @@ sweep: tests/sweep.c src/main.c
 	    src/input.c src/sound.c src/objects.c src/dave.c src/level.c src/star.c \
 	    $(LDFLAGS) $(LDLIBS)
 
+# F4 joystick-calibration regression test (see tests/joycfg.c).  Uses an SDL3
+# virtual gamepad, so it runs without hardware.
+joycfg: tests/joycfg.c src/main.c
+	$(CC) $(CFLAGS) -o $@ tests/joycfg.c src/platform.c src/dd2.c src/video.c \
+	    src/input.c src/sound.c src/objects.c src/dave.c src/level.c src/star.c \
+	    $(LDFLAGS) $(LDLIBS)
 # End-to-end level-flow test: death -> game over -> restart (see tests/flow.c).
 flow: tests/flow.c src/main.c
 	$(CC) $(CFLAGS) -o $@ tests/flow.c src/platform.c src/dd2.c src/video.c \
 	    src/input.c src/sound.c src/objects.c src/dave.c src/level.c src/star.c \
 	    $(LDFLAGS) $(LDLIBS)
 
-.PHONY: all clean test sweep flow startest icon
+.PHONY: all clean test sweep flow startest joycfg icon

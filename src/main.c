@@ -335,14 +335,13 @@ static void Screen_KeyConfig(void)
    (J)ump ?" question (0x6DC4-0x6DE9) sets [0xA6DE]. */
 static void Screen_JoyConfig(void)
 {
-    int x0 = 0, y0 = 0, x1 = 0, y1 = 0, sx, sy, tile, k, i;
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0, sx = 0, sy, tile, k, i;
     uint32_t t0 = Plat_Ticks();
 
     Video_FromIndexed(fb, DD2_W, DD2_H);   /* keep the level behind the panel */
     Video_CenterPanel(&A, 0x18, 0x10);                      /* 0x6BBD */
     Video_PrintStrC("Joystick Configuration\n");            /* 0x6BCB: DS:0x2906 */
     Video_PrintStrC("----------------------\n");            /* 0x6BD4: DS:0x291E */
-    sx = dd2_text_left + 0x60;
     sy = dd2_text_y;
     /* The original draws the frame and the prompt (0x6BBB-0x6BF7) BEFORE it
        spins for a button, so the screen must be visible even without a pad.
@@ -371,11 +370,23 @@ static void Screen_JoyConfig(void)
             ? "Hold the joystick in the\nUPPER LEFT corner and\npress a button:"
             : "\n\nHold the joystick in the\nLOWER RIGHT corner and\npress a button:");
         present_now();
+        if (k == 0) {
+            /* 0x6BF8-0x6C07: the spinner column is taken from the LIVE text
+               cursor after "press a button:" is printed --
+                   ax = [0x4228] ; ax = (ax + 7) >> 3 ; [0x9340] = ax
+               -- and 0x915A adds that value straight to the framebuffer offset
+               (`add di, [bp+4]`), i.e. it is a BYTE column.  It is computed
+               once here and reused for the second spinner: 0x6CC6 pushes the
+               same [0x9340] again.  The port used to use the invented
+               dd2_text_left + 0x60 and round DOWN, which put the arrow on top
+               of the prompt (measured 160 px against the original's 176 px). */
+            sx = ((dd2_text_x + 7) >> 3) * 8;
+        }
         sy = dd2_text_y;     /* 0x915A uses the current [0x422A] for the spinner */
         /* 0x6BF8-0x6C39: spinner + wait for a button */
         tile = 0x0F;
         for (;;) {
-            Video_Tile8(&A, tile, (sx >> 3) * 8, sy);       /* 0x6C0A: 0x915A */
+            Video_Tile8(&A, tile, sx, sy);                  /* 0x6C0A: 0x915A */
             present_now();
             for (i = 0; i < 3; i++) Video_TickDelay();      /* 0x6C19: 0x8EC3(3) */
             Plat_PumpEvents();
@@ -385,6 +396,21 @@ static void Screen_JoyConfig(void)
         }
         if (k == 0) Plat_PadRaw(&x0, &y0);
         else        Plat_PadRaw(&x1, &y1);
+        /* 0x6C6E/0x6D2A: the spinner is erased with the fill tile 0x1B at the
+           same spot, then 0x6C80-0x6CA0 (0x6D3C-0x6D58) keeps calling 0x73AE
+           until the button is RELEASED.  Without that wait the LOWER RIGHT
+           corner is sampled while the button of the UPPER LEFT press is still
+           down and the stick is still in the first corner: min == max, every
+           threshold pair collapses to that corner and a resting stick then
+           reads as a direction (measured cmd 3 = south-east, i.e. Dave aims at
+           the ground forever). */
+        Video_Tile8(&A, 0x1B, sx, sy);
+        present_now();
+        while (Plat_PadButtons() & 3) {                     /* 0x6C80 */
+            if (g_fast && Plat_Ticks() - t0 > 250) break;
+            Plat_PumpEvents();
+            Video_TickDelay();
+        }
     }
     /* 0x6D5E-0x6DAD: the thresholds */
     {
