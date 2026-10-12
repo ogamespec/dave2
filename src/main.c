@@ -1721,8 +1721,19 @@ int main(int argc, char **argv)
         memset(fb, 0, sizeof fb);
         {
             int tx, ty, px, py, k;
-            for (ty = 0; ty < DD2_H / 16 + 1; ty++)
-                for (tx = 0; tx < DD2_W / 16 + 1; tx++) {
+            /* The first visible tile row/column sits at -(camy & 15) /
+               -(camx & 15): 13 rows cover the 200-px window only while the
+               sub-tile offset is <= 8, and 20 columns only while the column
+               offset is 0.  The old constants DD2_H/16 + 1 (= 13) and
+               DD2_W/16 + 1 (= 21) therefore left the bottom (camy & 15) - 8
+               pixel rows of the framebuffer unpainted -- the black stripe that
+               flickered on every vertical scroll step (measured on LEVEL01
+               after the first jump forward: 6..7 black rows in frames 205+).
+               Cover the window instead: ceil((200 + offset) / 16) rows. */
+            int trows = (DD2_H + (camy & 15) + 15) / 16;
+            int tcols = (DD2_W + (camx & 15) + 15) / 16;
+            for (ty = 0; ty < trows; ty++)
+                for (tx = 0; tx < tcols; tx++) {
                     int lx = (camx >> 4) + tx, ly = (camy >> 4) + ty;
                     int idx, sx, sy;
                     if (lx < 0 || ly < 0 || lx >= A.level.w || ly >= A.level.h) continue;

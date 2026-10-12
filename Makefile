@@ -41,20 +41,31 @@ clean:
 
 # Headless smoke test: renders frames without a display and dumps a PNG-less
 # BMP using the SDL "dummy" video driver.
+DD2_DATA ?= /mnt/c/Games/DD2
 test: $(BIN)
-	SDL_VIDEODRIVER=dummy ./$(BIN) /mnt/c/Games/DD2
+	SDL_VIDEODRIVER=dummy ./$(BIN) $(DD2_DATA)
 
 # Star-engine stage test (tables 0x63D6 + INTRO.DD2 logo); see tests/startest.c.
 startest: tests/startest.c src/star.c src/star.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/startest.c src/star.c src/dd2.c $(LDFLAGS) $(LDLIBS)
 
-# All automated checks: the self-tests, the cross-level sweep and the
-# level-flow test (see tests/).
-check: sweep flow startest joycfg
+# All automated checks: the self-tests, the cross-level sweep, the level-flow
+# test, the F4 gamepad stand and the scroll-coverage check (see tests/).
+check: sweep flow startest joycfg cover
 	./sweep
 	./flow
 	./startest
 	./joycfg
+	$(MAKE) --no-print-directory cover
+
+# Vertical-scroll coverage: the tile renderer must paint the whole 320x200
+# window, otherwise a black stripe appears at the bottom while the camera sits
+# between tile rows (see tests/cover.py).
+cover: $(BIN) tests/cover.py
+	rm -rf /tmp/dd2_cover && mkdir -p /tmp/dd2_cover
+	SDL_VIDEODRIVER=dummy ./$(BIN) $(DD2_DATA) --level 1 --frames 400 \
+	    --walk 400 --jump 120 --record /tmp/dd2_cover >/dev/null 2>&1
+	python3 tests/cover.py /tmp/dd2_cover
 
 # Cross-level collision sweep (all 8 levels, scripted input).  Includes main.c
 # so it drives the real dispatchers; fails if Dave leaves the map anywhere.
@@ -69,10 +80,11 @@ joycfg: tests/joycfg.c src/main.c
 	$(CC) $(CFLAGS) -o $@ tests/joycfg.c src/platform.c src/dd2.c src/video.c \
 	    src/input.c src/sound.c src/objects.c src/dave.c src/level.c src/star.c \
 	    $(LDFLAGS) $(LDLIBS)
+
 # End-to-end level-flow test: death -> game over -> restart (see tests/flow.c).
 flow: tests/flow.c src/main.c
 	$(CC) $(CFLAGS) -o $@ tests/flow.c src/platform.c src/dd2.c src/video.c \
 	    src/input.c src/sound.c src/objects.c src/dave.c src/level.c src/star.c \
 	    $(LDFLAGS) $(LDLIBS)
 
-.PHONY: all clean test sweep flow startest joycfg icon
+.PHONY: all clean test sweep flow startest joycfg cover icon
