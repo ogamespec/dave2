@@ -2,3 +2,9 @@
 /bin
 /obj
 /re
+dd2
+startest
+sweep
+flow
+/src/*.o
+*.log
