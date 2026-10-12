@@ -1,11 +1,12 @@
 # Dangerous Dave in the Haunted Mansion — SDL3 port
 
+![demo](demo.webp)
+
 A C + SDL3 source port of Dangerous Dave in the Haunted Mansion (id Software /
 Softdisk, 1991). The game logic is reconstructed from the disassembly of the
 original DOS binary, and that disassembly is the reference for the port's
 behaviour and for the automated checks. It renders the original EGA 320×200
-graphics and plays the original PC-speaker sound. See `specs/ARCHITECTURE.md`
-for how it is put together.
+graphics and plays the original PC-speaker sound.
 
 ## What you need to run it
 
